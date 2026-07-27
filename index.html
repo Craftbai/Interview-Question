@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>嵌入式面试题库 · 刷题练习器</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">&gt;_</span>
+    <span class="brand-text">嵌入式面试题库</span>
+  </div>
+  <nav class="tabs" id="viewTabs">
+    <button class="tab is-active" data-view="practice">练习</button>
+    <button class="tab" data-view="stats">统计</button>
+  </nav>
+  <div class="topbar-actions">
+    <button class="icon-btn" id="btnFilter" title="筛选组卷">筛选</button>
+    <button class="icon-btn" id="btnSettings" title="设置与数据">设置</button>
+    <button class="icon-btn" id="btnTheme" title="切换主题">主题</button>
+  </div>
+</header>
+
+<div class="progressline"><div class="progressline-fill" id="deckProgress"></div></div>
+
+<!-- ============ 筛选面板 ============ -->
+<section class="panel" id="filterPanel" hidden>
+  <div class="panel-inner">
+    <div class="field">
+      <div class="field-head">
+        <label>分类</label>
+        <div class="mini-actions">
+          <button class="link-btn" data-cat-action="all">全选</button>
+          <button class="link-btn" data-cat-action="none">清空</button>
+          <button class="link-btn" data-cat-action="auto">车载方向</button>
+        </div>
+      </div>
+      <div class="chips" id="catChips"></div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>难度</label>
+        <div class="chips" id="levelChips">
+          <button class="chip is-on" data-level="1">基础</button>
+          <button class="chip is-on" data-level="2">进阶</button>
+          <button class="chip is-on" data-level="3">深入</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>题型</label>
+        <div class="chips" id="typeChips">
+          <button class="chip is-on" data-type="single">单选</button>
+          <button class="chip is-on" data-type="multi">多选</button>
+          <button class="chip is-on" data-type="bool">判断</button>
+          <button class="chip is-on" data-type="qa">简答</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>范围</label>
+        <div class="chips" id="scopeChips">
+          <button class="chip" data-scope="wrong">只看错题</button>
+          <button class="chip" data-scope="unmastered">只看未掌握</button>
+          <button class="chip" data-scope="fav">只看收藏</button>
+          <button class="chip chip-warn" data-scope="resume">简历高危</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>出题顺序</label>
+        <div class="chips" id="modeChips">
+          <button class="chip is-on" data-mode="smart">智能复习</button>
+          <button class="chip" data-mode="ordered">顺序练</button>
+          <button class="chip" data-mode="random">随机练</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>关键词</label>
+      <input type="search" id="searchInput" class="input" placeholder="搜索题干、标签、参考答案…（如 volatile、epoll、27 服务）">
+    </div>
+
+    <div class="panel-foot">
+      <span class="deck-count" id="deckCount">—</span>
+      <div class="panel-foot-actions">
+        <button class="btn btn-ghost" id="btnResetFilter">重置</button>
+        <button class="btn btn-primary" id="btnApplyFilter">开始练习</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 设置面板 ============ -->
+<section class="panel" id="settingsPanel" hidden>
+  <div class="panel-inner">
+    <div class="field">
+      <label>口述模式</label>
+      <p class="hint">开启后先只显示题干与倒计时，逼自己出声把答案讲完再揭晓。面试考的是能不能讲清楚，不是能不能认出正确选项。</p>
+      <div class="chips">
+        <button class="chip" id="oralToggle" data-on="false">口述模式：关</button>
+        <button class="chip" id="oralTimeBtn">倒计时：60 秒</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>数据</label>
+      <p class="hint">进度存在浏览器 localStorage 里。换电脑或清缓存前先导出。</p>
+      <div class="chips">
+        <button class="chip" id="btnExport">导出进度</button>
+        <button class="chip" id="btnImport">导入进度</button>
+        <button class="chip" id="btnExportWrong">导出今日错题 (MD)</button>
+        <button class="chip chip-danger" id="btnReset">清空全部进度</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+    <div class="field">
+      <label>题库自检</label>
+      <div id="bankHealth" class="health"></div>
+    </div>
+    <div class="field">
+      <label>快捷键</label>
+      <div class="keys">
+        <span><kbd>1</kbd>…<kbd>6</kbd> 选择选项</span>
+        <span><kbd>空格</kbd> 提交 / 揭晓 / 下一题</span>
+        <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 简答自评</span>
+        <span><kbd>←</kbd><kbd>→</kbd> 上下题</span>
+        <span><kbd>F</kbd> 收藏</span>
+        <span><kbd>/</kbd> 搜索</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 练习视图 ============ -->
+<main class="view is-active" id="view-practice">
+  <div class="card-wrap" id="cardWrap"></div>
+  <div class="navbar" id="navbar" hidden>
+    <button class="btn btn-ghost" id="btnPrev">← 上一题</button>
+    <div class="navbar-mid">
+      <span id="deckPos">0 / 0</span>
+      <button class="icon-btn" id="btnFav" title="收藏 (F)">☆</button>
+    </div>
+    <button class="btn btn-ghost" id="btnNext">下一题 →</button>
+  </div>
+</main>
+
+<!-- ============ 统计视图 ============ -->
+<main class="view" id="view-stats">
+  <div class="stats-wrap" id="statsWrap"></div>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- 引擎 -->
+<script src="js/bank.js"></script>
+
+<!-- 题库（普通 script 加载，file:// 下可用；勿改成 fetch/ESM） -->
+<script src="data/_meta.js"></script>
+<script src="data/c-lang.js"></script>
+<script src="data/coding.js"></script>
+<script src="data/cpp.js"></script>
+<script src="data/ds-algo.js"></script>
+<script src="data/os.js"></script>
+<script src="data/rtos.js"></script>
+<script src="data/linux-app.js"></script>
+<script src="data/linux-drv.js"></script>
+<script src="data/mcu-hw.js"></script>
+<script src="data/bus.js"></script>
+<script src="data/network.js"></script>
+<script src="data/build.js"></script>
+<script src="data/debug.js"></script>
+<script src="data/security.js"></script>
+<script src="data/automotive.js"></script>
+<script src="data/behavioral.js"></script>
+
+<script src="js/store.js"></script>
+<script src="js/scheduler.js"></script>
+<script src="js/quiz.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
