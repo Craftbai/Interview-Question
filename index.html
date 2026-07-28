@@ -6,6 +6,8 @@
 <meta name="color-scheme" content="light dark">
 <title>嵌入式面试题库 · 刷题练习器</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0e0b">
 </head>
 <body>
 
@@ -194,5 +196,19 @@
 <script src="js/quiz.js"></script>
 <script src="js/stats.js"></script>
 <script src="js/app.js"></script>
+
+<!-- PWA: 注册 Service Worker -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js').then(function(reg) {
+      console.log('SW registered:', reg.scope);
+    }).catch(function(err) {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
+</script>
+</body>
 </body>
 </html>
