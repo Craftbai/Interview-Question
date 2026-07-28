@@ -100,7 +100,7 @@ pub struct Catalog {
 
 **扁平数组 + `by_cat` 索引，兼顾了两件事**：数据层面不分文件（新增题目只往数组末尾追加），逻辑层面分类依然是一等公民（`by_cat` 直接给出某分类的全部题目，O(1) 查表）。`cats` 保持声明顺序，所以筛选面板里分类的排列跟现在完全一致。
 
-`by_level` 和 `by_type` 不建索引 —— 468 条数据线性扫描是微秒级，多一份索引只是多一处要维护同步的状态。
+`by_level` 和 `by_type` 不建索引 —— 476 条数据线性扫描是微秒级，多一份索引只是多一处要维护同步的状态。
 
 ### 用户状态（Progress）
 
@@ -275,7 +275,7 @@ IndexedDB 结构：
 | version | `2` |
 | ObjectStore | `state`，key 固定为 `"current"`，value 为完整 UserState JSON |
 
-单条记录而不是按题 id 拆成多条：468 题的状态序列化后只有几十 KB，一次读写反而比几百次事务快，也不用处理部分写入失败。
+单条记录而不是按题 id 拆成多条：476 题的状态序列化后只有几十 KB，一次读写反而比几百次事务快，也不用处理部分写入失败。
 
 **旧数据迁移**：首次启动检测到 localStorage 有 `embq.v1` 而 IndexedDB 为空时，读出旧数据、补齐 v2 新增字段（`deck`、`seed`）、写入 IndexedDB。旧 key 不删除，保留一个版本周期作为回退。
 
@@ -388,17 +388,17 @@ src/core/
 └── store.ts      # IndexedDB + localStorage
 ```
 
-**Markdown 渲染器留在 TS 而不是搬进 Rust**：它输出 HTML 字符串直接喂给 `innerHTML`，本质是 UI 层的事；搬进 Rust 只是多一次跨边界的字符串拷贝。现有实现（转义优先、表格、引用块、代码块、悬挂缩进编号）已经跑过 468 道题的真实数据，照搬过来加类型标注即可，`window.__renderMD` 测试钩子保留。
+**Markdown 渲染器留在 TS 而不是搬进 Rust**：它输出 HTML 字符串直接喂给 `innerHTML`，本质是 UI 层的事；搬进 Rust 只是多一次跨边界的字符串拷贝。现有实现（转义优先、表格、引用块、代码块、悬挂缩进编号）已经跑过 476 道题的真实数据，照搬过来加类型标注即可，`window.__renderMD` 测试钩子保留。
 
 渲染函数签名统一为 `(engine: QuizEngine, root: HTMLElement) => void`，纯读 engine、纯写 DOM，不持有自己的状态。现在散落在模块顶层的 `picked` / `revealed` / `verdict` 收进一个 `CardState` 对象，随题目切换整体重置 —— 这是现在「状态污染」类 bug 的来源。
 
 ## 题库迁移
 
-现有 26 个 `data/*.js` 文件，每个以 `QBANK.add([...])` 注册一批题目。迁移目标是两个 JSON：
+入口脚本共 27 个：`data/meta.js`（分类元数据）+ 26 个题库脚本，按 `index.html` 中 `<script>` 的加载顺序排列。迁移目标是两个 JSON：
 
 | 文件 | 内容 | 来源 |
 |---|---|---|
-| `data/questions.json` | 扁平数组，476 道题 | 25 个题库 js 文件按 index.html 中的加载顺序拼接 |
+| `data/questions.json` | 扁平数组，476 道题 | 26 个题库脚本按 index.html 加载顺序拼接 |
 | `data/categories.json` | 分类元数据 + `CAT_PRESETS` | `data/meta.js` |
 
 ### 迁移脚本 `scripts/migrate.mjs`
@@ -467,12 +467,24 @@ for (const f of FILES_IN_LOAD_ORDER) await import(`../data/${f}`);
 # 1. 编译 Rust → WASM
 wasm-pack build --target web
 
-# 2. 构建前端
+# 2. 构建前端（同时产出 web dist 和 Tauri 前端）
 npm run build
 
 # 3. 打包 Tauri
 cargo tauri build
 ```
+
+### 双端策略
+
+**当前决策：保留 web 版（GitHub Pages + PWA），同时交付 Windows exe。**
+
+原因：
+- web 版零成本，朋友随时打开即用，不需要安装
+- Tauri 版提供本地离线体验，不受网络影响
+- 两者共享同一套 `src/` 代码，差异仅在 `main.ts` 入口和 `tauri.conf.json`
+- 测试时 web 版覆盖快速迭代（CI 跑 Playwright），桌面版覆盖 Tauri 特定路径
+
+未来如果桌面版用户数超过 web 版，再考虑把 web 版改为 SPA + 后端 API，届时再决定是否下线 GitHub Pages。当前不需要。
 
 ## 测试
 
