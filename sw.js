@@ -14,7 +14,7 @@ var ASSETS = [
   './js/quiz.js',
   './js/stats.js',
   './js/app.js',
-  './data/_meta.js',
+  './data/meta.js',
   './data/c-lang.js',
   './data/coding.js',
   './data/coding-2.js',
