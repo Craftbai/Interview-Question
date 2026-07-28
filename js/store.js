@@ -18,11 +18,14 @@
   var state = null;
   var saveTimer = null;
 
-  function today() {
-    var d = new Date();
+  function formatDate(d) {
     return d.getFullYear() + '-' +
       String(d.getMonth() + 1).padStart(2, '0') + '-' +
       String(d.getDate()).padStart(2, '0');
+  }
+
+  function today() {
+    return formatDate(new Date());
   }
 
   function load() {
@@ -120,9 +123,7 @@
       var d = new Date(), n = 0;
       if (!state.days[today()]) d.setDate(d.getDate() - 1);
       for (var i = 0; i < 400; i++) {
-        var k = d.getFullYear() + '-' +
-          String(d.getMonth() + 1).padStart(2, '0') + '-' +
-          String(d.getDate()).padStart(2, '0');
+        var k = formatDate(d);
         if (!state.days[k]) break;
         n++;
         d.setDate(d.getDate() - 1);

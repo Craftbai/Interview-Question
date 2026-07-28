@@ -429,5 +429,73 @@ QBANK.add([
   q: '你会怎么测试一个 Bootloader？列出你认为必须覆盖的测试场景。',
   a: '**1. 正常流程**\n- 完整刷写一遍，校验 Flash 内容与源固件逐字节一致\n- 刷写后应用能正常启动运行\n- 连续刷写多次（验证状态清理干净，没有残留）\n- 刷写不同大小的固件：最小、最大、正好边界值\n\n**2. 掉电测试（最关键）**\n在以下每个时刻断电，然后重新上电验证行为：\n- 擦除进行中 → 应停在 Bootloader\n- 传输数据中途 → 应停在 Bootloader\n- 最后一块写完、有效标志还没写 → 应停在 Bootloader\n- 有效标志刚写完 → 应能正常启动新应用\n- **写有效标志的那一瞬间**（最难构造，可以用可编程电源做精确定时断电）\n\n做法：用可编程电源按不同延时切断，或者在代码里打桩模拟。**每个断点都要能恢复，不能变砖。**\n\n**3. 通信异常**\n- 中途拔掉 CAN 线，再插回来\n- 丢帧：故意丢一个 CF、丢一个 FC\n- 乱序：改变 CF 的 SN\n- 超时：诊断仪故意不发 TesterPresent 超过 5 秒\n- 重发：同一个 blockSequenceCounter 发两次（**验证幂等处理**）\n- ISO-TP 边界：正好 7 字节、8 字节、4095 字节的报文\n\n**4. 非法输入（安全测试）**\n- 地址超出允许范围（尝试覆盖 Bootloader 自身）→ 必须拒绝\n- 长度字段和实际数据不符\n- 未解锁就发 0x34/0x36 → 应回 0x33\n- 流程跳步：不发 0x34 直接发 0x36 → 应回 0x24\n- 错误的密钥连续尝试 → 验证次数限制和延时锁定生效，**且断电重来仍然锁定**\n- 篡改固件后刷入 → 签名/CRC 校验必须失败并拒绝\n- 刷入为别的硬件版本编译的固件 → 兼容性检查必须拦住\n\n**5. 边界与压力**\n- 电压边界：在允许电压的上下限刷写\n- 温度边界：高低温箱里刷写（Flash 擦写有温度限制）\n- 长时间稳定性：连续刷写 100 次以上，看是否出现偶发失败\n- 总线高负载下刷写\n\n**6. 兼容性**\n- 用不同的诊断工具刷（CANoe、厂商工具、自研上位机）\n- 不同的 CAN 硬件接口（ZLG、Kvaser、PCAN）\n- 不同的 STmin / BS 参数组合\n\n**7. 回归**\n把上面的场景尽量做成**自动化脚本**（CAPL 或 python-can），每次改动后跑一遍。Bootloader 是最不能出问题的模块，人工测试覆盖不全也不可重复。\n\n**面试时的重点**：强调**掉电测试**和**自动化回归**。前者是 Bootloader 区别于普通模块的核心风险，后者体现工程成熟度。能说出"用可编程电源做精确定时断电"这种具体手段，比泛泛说"要做掉电测试"有说服力得多。',
   followup: ['怎么精确控制在某一时刻断电？', '怎么自动化验证 Flash 内容和源固件一致？', '哪些测试场景是人工做不了、必须自动化的？']
+},
+{
+  id: 'auto-056', cat: 'automotive', type: 'qa', level: 2, tags: ['DoIP', '车载以太网', 'ISO-13400'], resume: true,
+  q: 'DoIP (ISO 13400) 协议是什么？它的协议栈结构与 UDS on CAN (ISO-TP) 有何不同？',
+  a: '**DoIP（Diagnostic over IP，ISO 13400）** 是将 UDS（ISO 14229）应用层诊断服务承载在 **以太网（TCP/IP 协议栈）** 上的国际标准。\n\n' +
+     '**1. 协议栈层次对比**：\n' +
+     '| 层级 | UDS on CAN | DoIP (UDS on IP) |\n' +
+     '|---|---|---|\n' +
+     '| 应用层 | UDS (ISO 14229-1) | UDS (ISO 14229-1) |\n' +
+     '| 传输/网络层 | **ISO-TP (ISO 15765-2)** | **DoIP (ISO 13400-2) + TCP / UDP** |\n' +
+     '| 数据链路/物理层 | CAN / CAN FD | Ethernet (100BASE-TX / 1000BASE-T1) |\n\n' +
+     '**2. 核心端口与协议分工**：\n' +
+     '- **UDP 13400 端口**：用于**车辆发现与识别**（Vehicle Identification / Announcement）以及心跳。节点广播或单播发现报文，不需要建立连接。\n' +
+     '- **TCP 13400 端口**：用于**路由激活（Routing Activation）与诊断长连接数据传输**。诊断服务数据（如 0x10, 0x22, 0x36 等）均在 TCP 连接上进行。\n\n' +
+     '**3. 相对 ISO-TP 的核心优势**：\n' +
+     '- **传输速率数量级飞跃**：从 CAN FD 的 2~5Mbps 提升到以太网 100Mbps / 1Gbps，大容量 Bootloader 固件刷写时间从数十分钟缩短至秒级。\n' +
+     '- **帧长限制大解脱**：ISO-TP 传输层上限 4095 字节，而 DoIP 单个 Diagnostic Message 可以轻松传输数十 KB 至 MB 级的内存数据。\n' +
+     '- **支持远距离/跨网段诊断**：结合 IP 路由，可轻松实现远程诊断 (OTA/Telematics) 与多网关接入。',
+  followup: ['DoIP 报文头结构是怎样的？', '为什么车辆发现用 UDP 而诊断传输用 TCP？']
+},
+{
+  id: 'auto-057', cat: 'automotive', type: 'qa', level: 3, tags: ['DoIP', 'TCP/IP', '路由激活'], resume: true,
+  q: 'DoIP 建立诊断连接与路由激活（Routing Activation）的具体流程是什么？',
+  a: '诊断仪（DoIP Client）要向 ECU（DoIP Entity）发送 UDS 诊断指令，必须经过 **“物理连接 → 车辆发现 → TCP 建立 → 路由激活”** 四个阶段：\n\n' +
+     '**1. 车辆发现阶段（Vehicle Discovery）**：\n' +
+     '- DoIP Entity 上电后向组播/广播地址发送 Vehicle Announcement Message（UDP 13400），或者诊断仪发送 Vehicle Identification Request 查询车辆 VIN、Logical Address 与 MAC。\n\n' +
+     '**2. TCP 连接建立（Socket Setup）**：\n' +
+     '- 诊断仪向目标 ECU 的 13400 TCP 端口发起标准 TCP 三次握手，建立 TCP 长套接字。\n\n' +
+     '**3. 路由激活阶段（Routing Activation，核心机制）**：\n' +
+     '- **发请求**：诊断仪发送 Routing Activation Request (Payload Type: 0x0005)，包含诊断仪的源逻辑地址（Source Address）和激活类型（如默认/OEM 专有）。\n' +
+     '- **鉴权与响应**：ECU 收到后进行校验（可选的安全认证或与当前车辆状态确认），若通过则回复 Routing Activation Response (Payload Type: 0x0006)，返回响应码 0x10 (Successfully Activated)。\n\n' +
+     '**4. 诊断数据传输（Diagnostic Data）**：\n' +
+     '- 激活成功后，诊断仪才能发送 Diagnostic Message (Payload Type: 0x8001) 传输具体的 UDS 字节流（如 10 03 进扩展会话）。未激活前发送的任何 0x8001 报文都会被 ECU 直接丢弃或回复错误。\n\n' +
+     '**为什么需要路由激活？**\n' +
+     'TCP 建立仅代表网络层通畅。路由激活用于在应用逻辑上绑定 Tester 地址与特定的 DoIP 逻辑通道，防止非法诊断源接入，并允许网关在多诊断仪并发时做通道映射与隔离。',
+  followup: ['DoIP 路由激活返回 0x02 或 0x06 代表什么错误？', 'TCP 连接断开后路由激活状态还保留吗？']
+},
+{
+  id: 'auto-058', cat: 'automotive', type: 'qa', level: 3, tags: ['AUTOSAR', 'Adaptive', 'Classic'], resume: true,
+  q: 'AUTOSAR Classic Platform (CP) 和 Adaptive Platform (AP) 的核心区别是什么？',
+  a: '**AUTOSAR Classic (CP)** 面向传统控制类 ECU（如发动机、BMS、ESP），强调**硬实时、低资源消耗与高可靠性**；\n' +
+     '**AUTOSAR Adaptive (AP)** 面向下一代域控制器与高性能算力平台（如智驾 SoC Orin/S32G/座舱），满足**高算力、高带宽与动态部署**的需求。\n\n' +
+     '| 维度 | Classic Platform (CP) | Adaptive Platform (AP) |\n' +
+     '|---|---|---|\n' +
+     '| **硬件平台** | 微控制器 MCU（如 Cortex-M / TriCore） | 高性能 MPUs / SoCs（如 Cortex-A / GPU） |\n' +
+     '| **操作系统** | OSEK / VDX 静态硬实时 OS | 兼容 **POSIX** 接口规范的 OS（Linux / QNX） |\n' +
+     '| **主要语言** | ANSI C (C99) | **Modern C++ (C++14)** |\n' +
+     '| **通信架构** | 基于信号（Signal-based：CAN/LIN） | **面向服务（Service-oriented：SOME/IP, DDS）** |\n' +
+     '| **中间件机制** | **RTE (Run-Time Environment)** 静态链接 | **ara::com** 动态服务发现与绑定 |\n' +
+     '| **更新与配置** | 静态编译，Flash 整体刷写 (Bootloader) | **动态进程部署**，支持应用级独立 OTA/容器更新 |\n\n' +
+     '**总结面试切入点**：CP 是“静态、C语言、基于信号、跑在裸板/OSEK OS上”，AP 是“动态、C++、面向服务(ara::com/SOME/IP)、跑在 POSIX Linux/QNX 上”。两者在域控架构中并非替代关系，而是结合使用（AP 做智能决策，CP 做底层安全执行）。',
+  followup: ['ara::com 怎么做服务发现 (Service Discovery)？', 'AP 的 Manifest 文件有什么作用？']
+},
+{
+  id: 'auto-059', cat: 'automotive', type: 'single', level: 2, tags: ['AUTOSAR', 'Adaptive', '通信'],
+  q: '在 AUTOSAR Adaptive Platform (AP) 架构中，应用进程之间以及跨节点服务通信主要使用的标准通信接口中间件是？',
+  options: [
+    'RTE (Run-Time Environment)',
+    'ara::com (Adaptive AUTOSAR Communication API)',
+    'OSEK COM Standard',
+    'CAN Driver (CanDrv)'
+  ],
+  answer: [ 1 ],
+  a: '**正确答案：B (ara::com)**。\n\n' +
+     '**解析**：\n' +
+     '- **ara::com** 是 AUTOSAR AP 规范中定义的通信中间件 C++ API。它屏蔽了底层传输细节（IPC/Shared Memory/SOME/IP/DDS），以面向服务的方式提供 Event（事件通知）、Method（远程方法调用）、Field（属性读取/订阅）机制。\n' +
+     '- **RTE** 是 AUTOSAR Classic (CP) 的核心静态交互中间件。\n' +
+     '- **OSEK COM** 是经典 OSEK 规范中的通信模块，已被 CP 继承并扩展。'
 }
 ]);

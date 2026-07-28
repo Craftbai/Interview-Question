@@ -30,7 +30,8 @@
   function inline(s) {
     return esc(s)
       .replace(/`([^`]+)`/g, function (m, c) { return '<code>' + c + '</code>'; })
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (m, t, u) { return '<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>'; });
   }
 
   /* 表格：连续的 | 行 → <table>，第二行是分隔线则首行为表头 */
@@ -82,7 +83,7 @@
     for (var b = 0; b < blocks.length; b++) {
       if (b % 2 === 1) {
         // 代码块：首行可能是语言名
-        var code = blocks[b].replace(/^[a-zA-Z0-9+#-]*\n/, '').replace(/\n$/, '');
+        var code = blocks[b].replace(/^(?:c|cpp|c\+\+|c#|python|py|bash|sh|asm|arm|json|html|xml|css|js|javascript|ts|typescript|rust|go|make|makefile|cmake|txt|text|diff|sql|verilog|vhdl|yaml|yml)\n/i, '').replace(/\n$/, '');
         out.push('<pre><code>' + esc(code) + '</code></pre>');
         continue;
       }
@@ -385,9 +386,10 @@
         Quiz.build(Quiz.filter()); renderCard();
       });
       $('#againWrong').addEventListener('click', function () {
-        var f = Quiz.filter();
-        f.scopes = f.scopes.indexOf('wrong') >= 0 ? f.scopes : f.scopes.concat(['wrong']);
-        if (!Quiz.build(f)) { toast('这卷里没有错题，漂亮'); Quiz.build(Quiz.filter()); }
+        var base = Quiz.filter();
+        var f = JSON.parse(JSON.stringify(base));
+        if (f.scopes.indexOf('wrong') < 0) f.scopes.push('wrong');
+        if (!Quiz.build(f, false)) { toast('这卷里没有错题，漂亮'); Quiz.build(base); }
         renderCard();
       });
       $('#toStats').addEventListener('click', function () { switchView('stats'); });

@@ -184,5 +184,65 @@ QBANK.add([
   q: '产品在实验室好好的，装到车上/工厂里就偶发死机，可能是什么原因？软件能做什么？',
   a: '**几乎可以确定是电磁环境和电源环境的差异。** 实验室干净、供电稳定；现场有大功率电机、继电器、点火系统、变频器。\n\n**常见原因**：\n1. **电源瞬变**：负载突变导致的电压跌落、开关电感产生的尖峰（load dump 在汽车上能到几十伏）\n2. **传导/辐射干扰**：长线缆充当天线，把干扰耦合进信号线\n3. **静电放电（ESD）**：人体接触接口\n4. **地电位差**：设备两端的地不在同一电位，形成地环流\n5. **温度**：现场温度范围远超实验室\n\n**软件能做的（很多，而且很有价值）**：\n\n1. **看门狗 + 复位原因记录**。先做到"死了能自己起来，且知道为什么死"。这是底线。\n\n2. **关键寄存器定期回读校验**。干扰可能让外设寄存器的值被翻转，定期回读比对，不一致就重新配置。这是功能安全里的标准做法。\n\n3. **通信层加校验和重传**。CRC、序列号、超时重传，不要假设总线是可靠的。\n\n4. **输入信号做滤波和合理性检查**。ADC 多次采样取中值、剔除跳变超过物理可能范围的值。\n\n5. **关键数据加冗余**。重要的全局变量存两份（一份取反），使用前比对；或者加 CRC。RAM 位翻转在强干扰环境下是真实存在的。\n\n6. **状态机加默认分支**。`switch` 一定要有 `default`，跑到非法状态时能自恢复而不是继续跑飞。\n\n7. **未使用的中断向量指向安全的处理函数**，记录并复位，而不是默认死循环。\n\n8. **Flash 关键数据定期 CRC 校验**。\n\n9. **完善的日志**。把复位前的现场（当前状态、最近几次操作、寄存器值）存到备份 RAM，重启后上报。**没有日志，现场问题基本无解。**\n\n**但要诚实**：软件是"缓解"不是"根治"。根治要靠硬件——TVS 管、共模电感、滤波电容、隔离、屏蔽、合理的接地和布线。**面试时能说清"哪些该软件做、哪些必须硬件做"，比声称软件能解决一切更专业。**\n\n**排查思路**：现场问题优先复现——用干扰源（继电器、对讲机、ESD 枪）在实验室模拟，能复现就成功了一半。',
   followup: ['关键数据用什么方式做冗余校验？', '怎么在实验室模拟现场的电磁干扰？', 'RAM 位翻转的概率有多大？什么场景需要认真对待？'],
+},
+{
+  id: 'mcu-025', cat: 'mcu-hw', type: 'qa', level: 3, tags: ['Infineon', 'TriCore', 'AURIX', '上下文切换'], resume: true,
+  q: '英飞凌 TriCore (AURIX TC2xx/TC3xx/TC4xx) 架构的上下文切换与 CSA (Context Save Area) 机制是怎样的？调试中碰到 Trap (Context Management) 怎么排查？',
+  a: '**1. TriCore 架构特点**：\n' +
+     '英飞凌 TriCore 采用 32 位 RISC+DSP+MCU 三合一架构。为了极速实现中断响应和函数调用，TriCore 硬件设计了 **CSA（Context Save Area，上下文保存区）**。\n\n' +
+     '**2. 上下文结构（Upper / Lower Context）**：\n' +
+     '- **Upper Context（高位上下文）**：包含 A10-A15（含栈指针 A10/SP、返回地址 A11/RA）、D8-D15 及 PSW 和 PCXI。在发生**中断 (Interrupt)**、**异常 (Trap)** 或调用 CALL 指令时，**由 CPU 硬件自动压栈保存**。\n' +
+     '- **Lower Context（低位上下文）**：包含 A2-A7、D0-D7。在需要保存时由 SVLCX 指令显式保存，或在某些嵌套调度时存取。\n\n' +
+     '**3. CSA 机制与链表结构**：\n' +
+     '- 每一个 CSA 是内存中固定 64 字节对齐的数据块。\n' +
+     '- 系统分配一段整块 SRAM 作为 CSA Pool。\n' +
+     '- 控制寄存器 FCX (Free Context List Head Pointer) 指向空闲 CSA 链表头，PCX (Previous Context Pointer) 指向当前保存的上次上下文。\n' +
+     '- 当触发 Upper Context 保存时，硬件自动从 FCX 链表取出一个 64 字节块存入数据，并将 FCX 移向下一个空闲块。\n\n' +
+     '**4. CSA 溢出与 Context Trap 排查**：\n' +
+     '- **现象**：当系统触发 Class 3 Trap (Context Management Trap)，绝大多数原因是 **CSA 消耗尽 (FCX 为 NULL)** 或 **CSA 链表指针损坏**。\n' +
+     '- **常见原因**：递归深度过深、中断嵌套层数过多（每次 ISR 自动消耗一个 Upper CSA）、调用 RET/RFE 时栈未对齐或压栈出栈不匹配。\n' +
+     '- **排查手段**：查看 PCXI 和 FCX 寄存器值；检查 .lsl 链接脚本中 CSA 预留大小；在 Trace32/调试器中导出 CSA 链表检查调用栈。',
+  followup: ['FCX 和 LCX 寄存器的区别是什么？', 'TriCore 的 RFE 指力和 RET 指有什么区别？']
+},
+{
+  id: 'mcu-026', cat: 'mcu-hw', type: 'qa', level: 3, tags: ['Infineon', 'AURIX', '功能安全', 'SMU'], resume: true,
+  q: '英飞凌 AURIX 芯片的安全管理单元 SMU (Safety Management Unit) 和 Trap 异常响应机制是怎样工作的？',
+  a: '**1. SMU（Safety Management Unit）核心职责**：\n' +
+     'SMU 是英飞凌 AURIX（TC2xx/TC3xx/TC4xx）功能安全（ISO 26262 ASIL-D）架构的核心部件。它**独立于 CPU** 集中监测芯片内部的所有硬件与软件故障信号（Alarm）。\n\n' +
+     '**2. SMU 的故障信号（Alarm）来源与处理**：\n' +
+     '- **故障源**：锁步核（Lockstep Core）比较不匹配、Flash/SRAM ECC 双位错、电源/时钟监控异常、看门狗超时、DMA/总线错误等。\n' +
+     '- **可配置的响应动作（Internal Action / External Action）**：\n' +
+     '  * 触发 NMI / Interrupt 给 CPU\n' +
+     '  * 触发 CPU Reset 或 System Reset\n' +
+     '  * 驱动外部 **FSP（Fault Signaling Protocol）引脚**（告知外部 SafeSBC 芯片切断安全回路）\n\n' +
+     '**3. TriCore Trap 异常类别（Class 0 ~ 7）**：\n' +
+     'TriCore 预定义了 8 类 Trap 向量：\n' +
+     '- **Class 0: MMU Trap**（内存管理错误）\n' +
+     '- **Class 1: Internal Protection Trap**（如访问受保护的 MPU 区域、Privilege Violation）\n' +
+     '- **Class 2: Instruction Error Trap**（非法指令）\n' +
+     '- **Class 3: Context Management Trap**（CSA 溢出/空）\n' +
+     '- **Class 4: System Bus Error Trap**（总线未对齐访问或读写不存在的地址）\n' +
+     '- **Class 5: Assertion Trap**（断言错误）\n' +
+     '- **Class 6: System Call Trap**（SYSCALL 指令进入特权模式）\n' +
+     '- **Class 7: Non-Maskable Interrupt (NMI)**（不可屏蔽中断，通常由 SMU 触发）\n\n' +
+     '**面试切入点**：能说出 AURIX 锁步核校验失败会报 Alarm 给 SMU，SMU 可拉低 FSP 引脚通知安全电源 IC（如 TLF35584），这就是汽车安全 ECU 的典型硬安全闭环。',
+  followup: ['FSP 故障信号协议引脚有哪几种工作模式？', 'AURIX 的 Lockstep Core 是怎么工作的？']
+},
+{
+  id: 'mcu-027', cat: 'mcu-hw', type: 'qa', level: 2, tags: ['RISC-V', '架构', '中断控制器'],
+  q: 'RISC-V 架构的三种特权模式（M/S/U-mode）与中断控制器（CLINT / PLIC）是如何工作的？',
+  a: '**1. RISC-V 特权模式（Privilege Levels）**：\n' +
+     '- **Machine Mode (M-Mode，机器模式)**：**最高特权级别**，必须支持的模式。直接访问物理硬件资源，负责 Bootloader/OpenSBI、底层中断处理。\n' +
+     '- **Supervisor Mode (S-Mode，监管者模式)**：用于运行现代操作系统内核（如 Linux）。支持虚拟内存地址转换 (MMU/satp)。\n' +
+     '- **User Mode (U-Mode，用户模式)**：运行用户应用程序，权限受限。\n\n' +
+     '**2. 核心 CSR 寄存器**：\n' +
+     '- mstatus / sstatus：全局状态寄存器（包含全局中断使能等）\n' +
+     '- mie / mip：中断使能（Enable）与中断等待标志（Pending）\n' +
+     '- mtvec / stvec：中断/异常入口向量基地址寄存器\n' +
+     '- mepc / sepc：保存发生中断/异常时的程序计数器 (PC)，用于 mret / sret 返回\n' +
+     '- mcause：保存中断/异常的具体原因码\n\n' +
+     '**3. 中断控制器架构 (CLINT vs PLIC)**：\n' +
+     '- **CLINT (Core Local Interruptor)**：处理**核内**低延迟中断（如软件中断 MSI 和定时器中断 MTI mtime/mtimecmp）。\n' +
+     '- **PLIC (Platform-Level Interrupt Controller)**：处理**平台级外设外部中断**（UART、SPI、GPIO 等）。支持优先级仲裁、中断 Claim/Completion 响应机制。在多核 RISC-V 芯片中将外部中断分发给特定的 Hart (CPU 核心)。'
 }
 ]);

@@ -54,9 +54,9 @@
       return out;
     },
 
-    /** 用筛选条件组卷并重置进度指针 */
-    build: function (f) {
-      filter = f;
+    /** 用筛选条件组卷并重置进度指针。saveFilter 为 false 时不更新当前活跃的筛选规则 */
+    build: function (f, saveFilter) {
+      if (saveFilter !== false) filter = f;
       deck = Scheduler.order(Quiz.select(f), f.mode);
       pos = 0;
       return deck.length;
