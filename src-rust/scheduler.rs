@@ -1,5 +1,6 @@
 use crate::catalog::Catalog;
 use crate::models::Mode;
+use crate::models::{Answer, Grade, QType, Verdict};
 use crate::models::{Deck, Filter, Progress, Question, Scope, UserState};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -232,6 +233,88 @@ impl Scheduler {
         self.pool = pool;
         self.filter = deck.filter;
         true
+    }
+}
+
+impl Scheduler {
+    pub fn judge(&self, id: &str, picked: &[usize]) -> Verdict {
+        let mut sorted: Vec<usize> = picked.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+
+        let q = match self.catalog.index_of(id).and_then(|i| self.catalog.get(i)) {
+            Some(q) => q,
+            None => return Verdict { correct: false, expected: vec![], picked: sorted },
+        };
+
+        match (&q.qtype, &q.answer) {
+            (QType::Single | QType::Multi, Answer::Indices(exp)) => {
+                let mut e = exp.clone();
+                e.sort_unstable();
+                Verdict { correct: e == sorted, expected: e, picked: sorted }
+            }
+            (QType::Bool, Answer::Bool(b)) => {
+                // 判断题用 picked[0]：0 = 错, 1 = 对
+                let want = if *b { 1usize } else { 0usize };
+                let got = sorted.first().copied();
+                Verdict { correct: got == Some(want), expected: vec![want], picked: sorted }
+            }
+            // 简答题无客观对错，由用户点评分按钮自评
+            (QType::Qa, _) => Verdict { correct: true, expected: vec![], picked: sorted },
+            _ => Verdict { correct: false, expected: vec![], picked: sorted },
+        }
+    }
+}
+
+impl Scheduler {
+    pub fn record(&mut self, id: &str, grade: Grade) {
+        let day = today_key();
+        let now = now_ms();
+
+        let p = self.state.q.entry(id.to_string()).or_default();
+        p.seen += 1;
+        p.last = now;
+        match grade {
+            Grade::Know => {
+                p.right += 1;
+                p.bx = (p.bx + 1).min(3);
+            }
+            // 保底 1 盒但不降级 —— 与 v1 一致，保住 fuzzy 这一档粒度
+            Grade::Fuzzy => {
+                p.bx = p.bx.max(1);
+            }
+            Grade::No => {
+                p.wrong += 1;
+                p.bx = 1;
+            }
+        }
+
+        *self.state.days.entry(day.clone()).or_insert(0) += 1;
+
+        if matches!(grade, Grade::No) {
+            let list = self.state.wrong_today.entry(day).or_default();
+            if !list.iter().any(|x| x == id) {
+                list.push(id.to_string());
+            }
+        }
+    }
+
+    pub fn toggle_fav(&mut self, id: &str) -> bool {
+        let p = self.state.q.entry(id.to_string()).or_default();
+        p.fav = !p.fav;
+        p.fav
+    }
+
+    /// [未练, 生, 熟, 已掌握]
+    pub fn distribution(&self, pool: &[usize]) -> [usize; 4] {
+        let mut d = [0usize; 4];
+        for &i in pool {
+            if let Some(q) = self.catalog.get(i) {
+                let bx = self.progress_of(&q.id).bx.min(3) as usize;
+                d[bx] += 1;
+            }
+        }
+        d
     }
 }
 
@@ -541,5 +624,110 @@ mod tests {
         });
         let mut s = Scheduler::new(fixture_catalog(), st);
         assert!(!s.restore_deck(), "卷里含不存在的 id，应作废");
+    }
+
+    #[test]
+    fn judge_single_choice() {
+        let s = fixture(); // c-1 是 single，答案 [0]
+        let v = s.judge("c-1", &[0]);
+        assert!(v.correct);
+        assert_eq!(v.expected, vec![0]);
+        assert!(!s.judge("c-1", &[1]).correct);
+    }
+
+    #[test]
+    fn judge_multi_choice_ignores_pick_order() {
+        let mut all: Vec<Question> = fixture_catalog().all().to_vec();
+        all.push(Question {
+            id: "m-1".into(), cat: "os".into(), q: "多选".into(), a: "答".into(),
+            qtype: QType::Multi, options: vec!["A".into(), "B".into(), "C".into()],
+            answer: Answer::Indices(vec![0, 2]), level: 1, tags: vec![],
+            resume: false, followup: vec![],
+        });
+        let s = Scheduler::new(Catalog::new(all, vec![cat("c-lang"), cat("os")]), UserState::default());
+        assert!(s.judge("m-1", &[2, 0]).correct, "选项顺序不影响判定");
+        assert!(!s.judge("m-1", &[0]).correct, "少选算错");
+        assert!(!s.judge("m-1", &[0, 1, 2]).correct, "多选算错");
+    }
+
+    #[test]
+    fn judge_qa_is_always_correct() {
+        let s = fixture(); // os-1 是 qa
+        assert!(s.judge("os-1", &[]).correct, "简答题没有客观对错，交给用户自评");
+    }
+
+    #[test]
+    fn judge_unknown_id_is_not_correct() {
+        let s = fixture();
+        assert!(!s.judge("missing", &[0]).correct);
+    }
+
+    #[test]
+    fn record_know_promotes_box_capped_at_three() {
+        let mut s = fixture();
+        for expected in [1u8, 2, 3, 3] {
+            s.record("c-1", Grade::Know);
+            assert_eq!(s.state().q.get("c-1").unwrap().bx, expected);
+        }
+        let p = s.state().q.get("c-1").unwrap();
+        assert_eq!(p.right, 4);
+        assert_eq!(p.wrong, 0);
+        assert_eq!(p.seen, 4);
+        assert!(p.last > 0, "last 应写入时间戳");
+    }
+
+    #[test]
+    fn record_fuzzy_floors_at_one_without_demoting() {
+        let mut s = fixture();
+        s.record("c-1", Grade::Fuzzy);
+        assert_eq!(s.state().q.get("c-1").unwrap().bx, 1, "0 盒提到 1 盒");
+
+        s.record("c-2", Grade::Know);
+        s.record("c-2", Grade::Know); // c-2 到 2 盒
+        s.record("c-2", Grade::Fuzzy);
+        let p = s.state().q.get("c-2").unwrap();
+        assert_eq!(p.bx, 2, "fuzzy 不降级（与 v1 行为一致，不是降回 1 盒）");
+        assert_eq!(p.wrong, 0, "fuzzy 不计 wrong");
+    }
+
+    #[test]
+    fn record_no_resets_box_and_marks_wrong_today() {
+        let mut s = fixture();
+        s.record("c-1", Grade::Know);
+        s.record("c-1", Grade::Know); // 到 2 盒
+        s.record("c-1", Grade::No);
+        let p = s.state().q.get("c-1").unwrap();
+        assert_eq!(p.bx, 1, "答错回 1 盒");
+        assert_eq!(p.wrong, 1);
+        let wrong = s.state().wrong_today.get(&today_key()).unwrap();
+        assert!(wrong.contains(&"c-1".to_string()), "应进今日错题本");
+    }
+
+    #[test]
+    fn record_bumps_daily_count_and_dedupes_wrong_list() {
+        let mut s = fixture();
+        s.record("c-1", Grade::No);
+        s.record("c-1", Grade::No);
+        assert_eq!(*s.state().days.get(&today_key()).unwrap(), 2, "每次作答都计入当日题量");
+        assert_eq!(s.state().wrong_today.get(&today_key()).unwrap().len(), 1, "错题本按 id 去重");
+    }
+
+    #[test]
+    fn toggle_fav_flips_and_reports() {
+        let mut s = fixture();
+        assert!(s.toggle_fav("c-1"));
+        assert!(s.state().q.get("c-1").unwrap().fav);
+        assert!(!s.toggle_fav("c-1"));
+    }
+
+    #[test]
+    fn distribution_counts_each_box() {
+        let mut st = UserState::default();
+        st.q.insert("c-1".into(), Progress { bx: 3, ..Default::default() });
+        st.q.insert("c-2".into(), Progress { bx: 1, ..Default::default() });
+        st.q.insert("os-1".into(), Progress { bx: 1, ..Default::default() });
+        let s = Scheduler::new(fixture_catalog(), st);
+        let pool = s.select(&Filter::default());
+        assert_eq!(s.distribution(&pool), [1, 2, 0, 1], "[未练, 生, 熟, 已掌握]");
     }
 }
