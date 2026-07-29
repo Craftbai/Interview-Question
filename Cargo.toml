@@ -19,3 +19,9 @@ js-sys = "0.3"
 [profile.release]
 lto = true
 opt-level = "z"
+
+# src-tauri 是独立 crate：它编译到本机 target，embq-core 编译到 wasm32。
+# 放进同一工作区会让 cargo test 连带编译 Tauri 依赖，既慢又容易冲突。
+[workspace]
+members = []
+exclude = ["src-tauri"]
