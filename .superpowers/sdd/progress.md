@@ -56,3 +56,25 @@
 - `css/style.css` 与基线 `5c32be0` 逐字节一致；`index.html` 无 DOM id 变更
 - 476 题 / 19 分类
 - 基线以来 35 个 commit
+
+## XSS / DOM 契约审计（peer session）后的修复
+
+| 问题 | 严重度 | 处理 |
+|---|---|---|
+| `settings.ts` renderHealth 未转义；health() 文本由 parser 拼入题目 `cat` 字段，questions.json 里恶意 cat 可达 innerHTML | 真实 XSS 链 | 补 `esc(p)` |
+| `markdown.ts` 链接无协议白名单；`esc()` 不含冒号，`javascript:` 能原样进 href | 存量缺陷（v1 同有） | 补 `safeUrl()`，只放行 http(s)/mailto/相对路径 |
+| renderHealth 用了冻结 CSS 里不存在的 `health-item`/`is-bad`/`is-ok` | 视觉降级 | 改回 legacy 的 `.health > span.err`，补回计数文案 |
+| `filter.ts` 的 `data-cat`、`main.ts` 启动失败信息未转义 | 纵深防御 | 补转义 |
+
+审计报告中 `stats.ts` 的两处未转义（`c.name`、`c.date`）与 6 处类名破裂，在其审计快照之后的 `45d0d76` 里已随统计视图重写一并解决——已重新核对确认。
+
+已全量核对 `src/ui` + `src/main.ts` 生成的所有 class 名（含 `tag-lv{n}`/`is-picked`/`verdict-*`/`seg-*` 等模板拼接的）均存在于 `css/style.css`。
+
+判定为无需处理：`esc()` 不转义单引号（全仓属性一律双引号，grep `='${` 零命中）；SW 注册路径 `'sw.js'` 相对页面解析，GitHub Pages 子路径下正确。
+
+## 最终状态（含审计修复）
+
+- Rust 79 测试，TypeScript 27 测试（含 6 个 wasm 契约 + 2 个 URL 白名单）
+- `tsc --noEmit` 干净，`npm run build` 通过，Tauri exe 编译通过
+- `css/style.css` 与基线逐字节一致；全部 class 名与之对齐
+- 39 个 commit，工作树干净
