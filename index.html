@@ -160,54 +160,13 @@
 <div class="toast" id="toast" hidden></div>
 
 <!-- 引擎 -->
-<script src="js/bank.js"></script>
-
-<!-- 题库（普通 script 加载，file:// 下可用；勿改成 fetch/ESM） -->
-<script src="data/meta.js"></script>
-<script src="data/c-lang.js"></script>
-<script src="data/coding.js"></script>
-<script src="data/coding-2.js"></script>
-<script src="data/cpp.js"></script>
-<script src="data/cpp-2.js"></script>
-<script src="data/ds-algo.js"></script>
-<script src="data/ds-algo-2.js"></script>
-<script src="data/control.js"></script>
-<script src="data/os.js"></script>
-<script src="data/rtos.js"></script>
-<script src="data/linux-app.js"></script>
-<script src="data/linux-drv.js"></script>
-<script src="data/linux-drv-2.js"></script>
-<script src="data/mcu-hw.js"></script>
-<script src="data/hardware.js"></script>
-<script src="data/bus.js"></script>
-<script src="data/network.js"></script>
-<script src="data/build.js"></script>
-<script src="data/build-2.js"></script>
-<script src="data/tools.js"></script>
-<script src="data/debug.js"></script>
-<script src="data/debug-2.js"></script>
-<script src="data/security.js"></script>
-<script src="data/security-2.js"></script>
-<script src="data/automotive.js"></script>
-<script src="data/behavioral.js"></script>
-
-<script src="js/store.js"></script>
-<script src="js/scheduler.js"></script>
-<script src="js/quiz.js"></script>
-<script src="js/stats.js"></script>
-<script src="js/app.js"></script>
-
-<!-- PWA: 注册 Service Worker -->
+<script type="module" src="/src/main.ts"></script>
 <script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('./sw.js').then(function(reg) {
-      console.log('SW registered:', reg.scope);
-    }).catch(function(err) {
-      console.warn('SW registration failed:', err);
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
     });
-  });
-}
+  }
 </script>
 </body>
 </body>
