@@ -1,0 +1,15 @@
+{
+  "name": "embq-core",
+  "type": "module",
+  "version": "2.0.0",
+  "files": [
+    "embq_core_bg.wasm",
+    "embq_core.js",
+    "embq_core.d.ts"
+  ],
+  "main": "embq_core.js",
+  "types": "embq_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

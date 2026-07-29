@@ -1,0 +1,37 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_quizengine_free: (a: number, b: number) => void;
+export const quizengine_advance: (a: number) => void;
+export const quizengine_back: (a: number) => number;
+export const quizengine_build: (a: number, b: number, c: number) => number;
+export const quizengine_cats: (a: number) => [number, number, number];
+export const quizengine_count: (a: number, b: number, c: number) => [number, number, number];
+export const quizengine_current: (a: number) => [number, number, number];
+export const quizengine_health: (a: number) => [number, number, number];
+export const quizengine_is_dirty: (a: number) => number;
+export const quizengine_is_finished: (a: number) => number;
+export const quizengine_judge: (a: number, b: number, c: number) => [number, number, number];
+export const quizengine_load_state_json: (a: number, b: number, c: number) => [number, number];
+export const quizengine_mark_clean: (a: number) => void;
+export const quizengine_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const quizengine_oral: (a: number) => number;
+export const quizengine_oral_seconds: (a: number) => number;
+export const quizengine_position: (a: number) => number;
+export const quizengine_questions_json: (a: number) => [number, number];
+export const quizengine_record: (a: number, b: number, c: number) => void;
+export const quizengine_restore_deck: (a: number) => number;
+export const quizengine_set_oral: (a: number, b: number) => void;
+export const quizengine_set_oral_seconds: (a: number, b: number) => void;
+export const quizengine_set_theme: (a: number, b: number, c: number) => void;
+export const quizengine_size: (a: number) => number;
+export const quizengine_state_json: (a: number) => [number, number];
+export const quizengine_stats: (a: number) => [number, number, number];
+export const quizengine_theme: (a: number) => [number, number];
+export const quizengine_toggle_fav: (a: number) => number;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;
