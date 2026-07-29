@@ -117,7 +117,14 @@ impl Default for UserState {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum Scope { Wrong, Unmastered, Fav, ResumeRisk }
+pub enum Scope {
+    Wrong,
+    Unmastered,
+    Fav,
+    /// 序列化为 "resume" 以匹配 index.html:74 的 data-scope 值
+    #[serde(rename = "resume")]
+    ResumeRisk,
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -231,5 +238,19 @@ mod tests {
         assert_eq!(p.bx, 0);
         assert_eq!(p.seen, 0);
         assert!(!p.fav);
+    }
+
+    #[test]
+    fn scope_serializes_to_dom_data_attribute_values() {
+        // 必须与 index.html:71-74 的 data-scope 值逐字一致
+        let f: Filter = serde_json::from_str(
+            r#"{"scopes":["wrong","unmastered","fav","resume"]}"#,
+        ).unwrap();
+        assert_eq!(
+            f.scopes,
+            vec![Scope::Wrong, Scope::Unmastered, Scope::Fav, Scope::ResumeRisk]
+        );
+        let out = serde_json::to_string(&f.scopes).unwrap();
+        assert_eq!(out, r#"["wrong","unmastered","fav","resume"]"#);
     }
 }
