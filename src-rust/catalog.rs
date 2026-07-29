@@ -3,6 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
+#[derive(Debug)]
 pub struct Catalog {
     all: Vec<Question>,
     by_cat: HashMap<String, Vec<usize>>,
