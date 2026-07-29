@@ -254,3 +254,25 @@ mod tests {
         assert_eq!(out, r#"["wrong","unmastered","fav","resume"]"#);
     }
 }
+
+/// Count 的返回结构 — 用 struct 而非 json! 宏，因为 wasm-bindgen 对 json! 序列化的结果
+/// 产生 JS Map（Object.keys 为空），而 struct 产生普通 Object。
+#[derive(Serialize, Debug)]
+pub struct CountPayload {
+    pub total: usize,
+    pub boxes: [usize; 4],
+}
+
+/// Stats 的返回结构。weakest 的 weak_ids 保持 snake_case（来自 RiskStats）。
+#[derive(Serialize, Debug)]
+pub struct StatsPayload {
+    pub overall: crate::stats::OverallStats,
+    /// TS 侧读 s.byCategory
+    #[serde(rename = "byCategory")]
+    pub by_category: Vec<crate::stats::CategoryStats>,
+    pub weakest: Vec<crate::stats::CategoryStats>,
+    pub heatmap: Vec<crate::stats::HeatCell>,
+    /// TS 侧读 s.resumeRisk；其内部 weak_ids 保持 snake_case
+    #[serde(rename = "resumeRisk")]
+    pub resume_risk: crate::stats::RiskStats,
+}

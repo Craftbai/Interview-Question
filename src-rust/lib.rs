@@ -4,7 +4,7 @@ pub mod parser;
 pub mod scheduler;
 pub mod stats;
 
-use models::{Filter, Grade};
+use models::{CountPayload, Filter, Grade, StatsPayload};
 use scheduler::Scheduler;
 use wasm_bindgen::prelude::*;
 
@@ -81,10 +81,10 @@ impl QuizEngine {
     pub fn count(&self, filter_json: &str) -> Result<JsValue, JsError> {
         let f = Self::parse_filter(filter_json).unwrap_or_default();
         let pool = self.inner.select(&f);
-        let payload = serde_json::json!({
-            "total": pool.len(),
-            "boxes": self.inner.distribution(&pool),
-        });
+        let payload = CountPayload {
+            total: pool.len(),
+            boxes: self.inner.distribution(&pool),
+        };
         serde_wasm_bindgen::to_value(&payload).map_err(|e| JsError::new(&e.to_string()))
     }
 }
@@ -154,13 +154,14 @@ impl QuizEngine {
     pub fn stats(&self) -> Result<JsValue, JsError> {
         let st = self.inner.state();
         let cat = self.inner.catalog();
-        let payload = serde_json::json!({
-            "overall": stats::overall(st, cat),
-            "byCategory": stats::by_category(st, cat),
-            "weakest": stats::weakest(st, cat, 5),
-            "heatmap": stats::heatmap(st, 182),
-            "resumeRisk": stats::resume_risk(st, cat),
-        });
+        let payload = StatsPayload {
+            overall: stats::overall(st, cat),
+            by_category: stats::by_category(st, cat),
+            weakest: stats::weakest(st, cat, 5),
+            // 56 天 = 8 周，与 legacy/js/app.js 的「最近 8 周」标题一致
+            heatmap: stats::heatmap(st, 56),
+            resume_risk: stats::resume_risk(st, cat),
+        };
         serde_wasm_bindgen::to_value(&payload).map_err(|e| JsError::new(&e.to_string()))
     }
 

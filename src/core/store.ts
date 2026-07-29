@@ -121,6 +121,7 @@ export async function resetState(): Promise<void> {
     });
   }
   safeRemoveItem(LS_V2);
+  safeRemoveItem(LS_V1);
 }
 
 function safeGetItem(k: string): string | null {

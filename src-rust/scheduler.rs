@@ -74,7 +74,6 @@ impl Scheduler {
     /// 按 filter 挑出命中的下标，保持题库原始顺序。维度间 AND，维度内 OR。
     pub fn select(&self, f: &Filter) -> Vec<usize> {
         let kw = f.keyword.trim().to_lowercase();
-        let wrong_ids = self.wrong_today_ids();
 
         (0..self.catalog.len())
             .filter(|&i| {
@@ -95,7 +94,7 @@ impl Scheduler {
                         Scope::Fav => p.fav,
                         Scope::Unmastered => p.bx < 3,
                         Scope::ResumeRisk => q.resume,
-                        Scope::Wrong => wrong_ids.iter().any(|w| w == &q.id),
+                        Scope::Wrong => p.wrong > 0,
                     });
                     if !hit { return false; }
                 }

@@ -12,6 +12,9 @@ pub struct OverallStats {
     pub today: u32,
     pub streak: u32,
     pub boxes: [usize; 4],
+    /// 客观题答对/答错累计，KPI 区显示「N 对/M 错」
+    pub right: u32,
+    pub wrong: u32,
 }
 
 pub fn overall(state: &UserState, catalog: &Catalog) -> OverallStats {
@@ -40,6 +43,8 @@ pub fn overall(state: &UserState, catalog: &Catalog) -> OverallStats {
         today: state.days.get(&today_key()).copied().unwrap_or(0),
         streak: streak(state),
         boxes,
+        right,
+        wrong,
     }
 }
 
@@ -83,6 +88,8 @@ pub struct CategoryStats {
     pub mastered: usize,
     pub seen: usize,
     pub accuracy: f64,
+    /// 各盒题量 [未练, 生, 熟, 已掌握]，条形图按 3/2/1 顺序堆叠
+    pub dist: [usize; 4],
 }
 
 pub fn by_category(state: &UserState, catalog: &Catalog) -> Vec<CategoryStats> {
@@ -92,9 +99,12 @@ pub fn by_category(state: &UserState, catalog: &Catalog) -> Vec<CategoryStats> {
         .map(|c| {
             let idxs = catalog.by_cat(&c.id);
             let (mut mastered, mut seen, mut right, mut wrong) = (0usize, 0usize, 0u32, 0u32);
+            let mut dist = [0usize; 4];
             for &i in idxs {
                 if let Some(q) = catalog.get(i) {
-                    if let Some(p) = state.q.get(&q.id) {
+                    let p = state.q.get(&q.id);
+                    dist[p.map(|p| p.bx.min(3)).unwrap_or(0) as usize] += 1;
+                    if let Some(p) = p {
                         if p.bx >= 3 {
                             mastered += 1;
                         }
@@ -114,19 +124,26 @@ pub fn by_category(state: &UserState, catalog: &Catalog) -> Vec<CategoryStats> {
                 mastered,
                 seen,
                 accuracy: if answered == 0 { 0.0 } else { right as f64 / answered as f64 },
+                dist,
             }
         })
         .collect()
 }
 
-/// 掌握率最低的 n 个分类。同率按 id 兜底，保证榜单稳定。
+/// 掌握率最低的 n 个分类。
+/// 题量少于 5 的分类不参与排名（与 legacy/js/stats.js:61 一致）——
+/// 3 道题里 0 道掌握就冲到榜首，对「最该补的方向」没有指导意义。
+/// 同掌握率时题量大的排前面（legacy 行为），题量也相同时用 id 兜底保证全序。
 pub fn weakest(state: &UserState, catalog: &Catalog, n: usize) -> Vec<CategoryStats> {
     let mut v: Vec<CategoryStats> =
-        by_category(state, catalog).into_iter().filter(|c| c.total > 0).collect();
+        by_category(state, catalog).into_iter().filter(|c| c.total >= 5).collect();
     v.sort_by(|a, b| {
         let ra = a.mastered as f64 / a.total as f64;
         let rb = b.mastered as f64 / b.total as f64;
-        ra.partial_cmp(&rb).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.id.cmp(&b.id))
+        ra.partial_cmp(&rb)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.total.cmp(&a.total))
+            .then_with(|| a.id.cmp(&b.id))
     });
     v.truncate(n);
     v
@@ -136,6 +153,19 @@ pub fn weakest(state: &UserState, catalog: &Catalog, n: usize) -> Vec<CategorySt
 pub struct HeatCell {
     pub date: String,
     pub count: u32,
+    /// 颜色深浅 0~4，对应现有 CSS 的 `.heat-cell[data-n]`。
+    /// 阈值与 legacy/js/stats.js:80 一致：0 / 1-9 / 10-24 / 25-49 / 50+
+    pub level: u8,
+}
+
+fn heat_level(count: u32) -> u8 {
+    match count {
+        0 => 0,
+        c if c < 10 => 1,
+        c if c < 25 => 2,
+        c if c < 50 => 3,
+        _ => 4,
+    }
 }
 
 /// 最近 days 天，按时间升序，最后一格是今天。没刷的日子补 0。
@@ -145,7 +175,7 @@ pub fn heatmap(state: &UserState, days: usize) -> Vec<HeatCell> {
         .map(|back| {
             let date = day_key_offset(back as i64);
             let count = state.days.get(&date).copied().unwrap_or(0);
-            HeatCell { date, count }
+            HeatCell { date, count, level: heat_level(count) }
         })
         .collect()
 }
@@ -256,21 +286,76 @@ mod tests {
         assert_eq!(v[0].mastered, 1);
     }
 
-    #[test]
-    fn weakest_ranks_by_mastery_rate_then_id() {
-        let (c, st) = fx();
-        let w = weakest(&st, &c, 2);
-        // c-lang 掌握 1/2 = 0.5, os 掌握 1/2 = 0.5 => 同率按 id 兜底，保证结果稳定
-        assert_eq!(w.len(), 2);
-        assert_eq!(w[0].id, "c-lang");
+    /// 造一个分类，n 道题，前 mastered 道在 3 盒
+    fn cat_with(id: &str, n: usize, mastered: usize) -> (Vec<Question>, Vec<(String, Progress)>) {
+        let mut qs = Vec::new();
+        let mut ps = Vec::new();
+        for i in 0..n {
+            let qid = format!("{id}-{i}");
+            qs.push(mk(&qid, id, false));
+            if i < mastered {
+                ps.push((qid, Progress { bx: 3, ..Default::default() }));
+            }
+        }
+        (qs, ps)
     }
 
     #[test]
-    fn weakest_skips_empty_categories() {
-        let c =
-            Catalog::new(vec![mk("a-1", "a", false)], vec![cat("a", "A"), cat("empty", "空分类")]);
-        let w = weakest(&UserState::default(), &c, 5);
-        assert!(w.iter().all(|x| x.id != "empty"), "没题的分类不该出现在最薄弱榜里");
+    fn weakest_ranks_by_mastery_rate_ascending() {
+        // a: 5 题掌握 4 (0.8)，b: 5 题掌握 1 (0.2)，c: 5 题掌握 3 (0.6)
+        let (mut all, mut prog) = (Vec::new(), Vec::new());
+        for (id, n, m) in [("a", 5, 4), ("b", 5, 1), ("c", 5, 3)] {
+            let (qs, ps) = cat_with(id, n, m);
+            all.extend(qs);
+            prog.extend(ps);
+        }
+        let catalog =
+            Catalog::new(all, vec![cat("a", "A"), cat("b", "B"), cat("c", "C")]);
+        let mut st = UserState::default();
+        st.q.extend(prog);
+
+        let w = weakest(&st, &catalog, 3);
+        assert_eq!(
+            w.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "c", "a"],
+            "掌握率升序：0.2 < 0.6 < 0.8"
+        );
+    }
+
+    #[test]
+    fn weakest_breaks_ties_by_larger_total_then_id() {
+        // 三个分类掌握率都是 0：题量 9 > 6 > 5，同题量再按 id
+        let (mut all, prog) = (Vec::new(), Vec::<(String, Progress)>::new());
+        for (id, n) in [("a", 5), ("b", 9), ("c", 6)] {
+            all.extend(cat_with(id, n, 0).0);
+        }
+        let catalog = Catalog::new(all, vec![cat("a", "A"), cat("b", "B"), cat("c", "C")]);
+        let mut st = UserState::default();
+        st.q.extend(prog);
+
+        let w = weakest(&st, &catalog, 3);
+        assert_eq!(
+            w.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+            vec!["b", "c", "a"],
+            "同掌握率时题量大的靠前（legacy 行为）"
+        );
+    }
+
+    #[test]
+    fn weakest_skips_categories_below_five_questions() {
+        // 与 legacy/js/stats.js:61 一致：题量 < 5 不参与排名，
+        // 否则 2 道题 0 掌握的分类会永远霸榜首，没有指导意义
+        let (mut all, _) = (Vec::new(), ());
+        all.extend(cat_with("small", 4, 0).0);
+        all.extend(cat_with("big", 5, 0).0);
+        let catalog = Catalog::new(all, vec![cat("small", "小"), cat("big", "大"), cat("empty", "空")]);
+
+        let w = weakest(&UserState::default(), &catalog, 5);
+        assert_eq!(
+            w.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+            vec!["big"],
+            "只有题量 >= 5 的 big 入榜"
+        );
     }
 
     #[test]
