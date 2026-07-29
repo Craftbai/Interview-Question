@@ -5,7 +5,9 @@
 // 0xC0000409 STATUS_STACK_BUFFER_OVERRUN），stdout 与 stderr 都是空的，
 // 连前面的 console.log 都来不及打印。readFileSync / mkdirSync /
 // copyFileSync 均正常，所以改成自己递归遍历、逐文件复制。
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import {
+  copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 function copyDir(src, dest) {
@@ -31,5 +33,9 @@ for (const f of ['sw.js', 'manifest.json']) {
     count += 1;
   }
 }
+
+// GitHub Pages 默认会跑 Jekyll，它会忽略下划线开头的目录、并可能干预静态资源的
+// 服务方式。这是纯静态产物，不需要 Jekyll 参与。
+writeFileSync(join('dist', '.nojekyll'), '');
 
 console.log(`Static assets copied to dist/ (${count} entries)`);
