@@ -51,6 +51,9 @@ pub fn parse(questions_json: &str, categories_json: &str) -> Result<Catalog, Par
         if !(1..=3).contains(&q.level) {
             errs.push(format!("{}: level 应为 1~3，实际 {}", q.id, q.level));
         }
+        if q.q.trim().is_empty() {
+            errs.push(format!("{}: 缺少题干", q.id));
+        }
         if q.a.trim().is_empty() {
             errs.push(format!("{}: 缺少参考答案", q.id));
         }
@@ -67,6 +70,9 @@ pub fn parse(questions_json: &str, categories_json: &str) -> Result<Catalog, Par
                     }
                     if q.qtype == QType::Single && v.len() != 1 {
                         errs.push(format!("{}: 单选题只能有 1 个正确答案", q.id));
+                    }
+                    if q.qtype == QType::Multi && v.len() < 2 {
+                        errs.push(format!("{}: 多选题至少 2 个正确答案，否则请用 single", q.id));
                     }
                 }
                 _ => errs.push(format!("{}: 选择题 answer 必须是非空索引数组", q.id)),
@@ -155,6 +161,21 @@ mod tests {
         let j = qs(r#"{"id":"x-1","cat":"c-lang","q":"a","a":"b","type":"single",
                       "options":["A","B"],"answer":[5]}"#);
         assert!(parse(&j, CATS).unwrap_err().to_string().contains("越界"));
+    }
+
+    #[test]
+    fn rejects_multi_with_single_answer() {
+        let j = qs(r#"{"id":"x-1","cat":"c-lang","q":"a","a":"b","type":"multi",
+                      "options":["A","B","C"],"answer":[1]}"#);
+        let e = parse(&j, CATS).unwrap_err().to_string();
+        assert!(e.contains("多选题"), "错误信息应指出多选题答案过少，实际: {e}");
+    }
+
+    #[test]
+    fn rejects_question_with_empty_stem() {
+        let j = qs(r#"{"id":"x-1","cat":"c-lang","q":"  ","a":"b","type":"qa"}"#);
+        let e = parse(&j, CATS).unwrap_err().to_string();
+        assert!(e.contains("题干"), "错误信息应指出缺少题干，实际: {e}");
     }
 
     #[test]
