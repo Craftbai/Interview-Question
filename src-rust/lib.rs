@@ -192,6 +192,31 @@ impl QuizEngine {
 
     pub fn is_dirty(&self) -> bool { self.dirty }
     pub fn mark_clean(&mut self) { self.dirty = false; }
+
+    pub fn theme(&self) -> String { self.inner.state().settings.theme.clone() }
+
+    pub fn set_theme(&mut self, v: &str) {
+        self.inner.state_mut().settings.theme = v.to_string();
+        self.dirty = true;
+    }
+
+    pub fn oral(&self) -> bool { self.inner.state().settings.oral }
+
+    pub fn set_oral(&mut self, v: bool) {
+        self.inner.state_mut().settings.oral = v;
+        self.dirty = true;
+    }
+
+    pub fn oral_seconds(&self) -> u32 { self.inner.state().settings.oral_seconds }
+
+    pub fn set_oral_seconds(&mut self, v: u32) {
+        self.inner.state_mut().settings.oral_seconds = v.clamp(5, 600);
+        self.dirty = true;
+    }
+
+    pub fn questions_json(&self) -> String {
+        serde_json::to_string(self.inner.catalog().all()).unwrap_or_else(|_| "[]".to_string())
+    }
 }
 
 #[cfg(test)]
@@ -305,5 +330,34 @@ mod engine_tests {
         assert!(e.toggle_fav());
         let s: serde_json::Value = serde_json::from_str(&e.state_json()).unwrap();
         assert_eq!(s["q"]["c-1"]["fav"], true);
+    }
+
+    #[test]
+    fn settings_round_trip_through_engine() {
+        let mut e = engine();
+        assert_eq!(e.theme(), "auto");
+        e.set_theme("dark");
+        assert_eq!(e.theme(), "dark");
+
+        assert!(!e.oral());
+        e.set_oral(true);
+        assert!(e.oral());
+
+        assert_eq!(e.oral_seconds(), 60);
+        e.set_oral_seconds(90);
+        assert_eq!(e.oral_seconds(), 90);
+
+        let s: serde_json::Value = serde_json::from_str(&e.state_json()).unwrap();
+        assert_eq!(s["settings"]["theme"], "dark");
+        assert_eq!(s["settings"]["oralSeconds"], 90);
+    }
+
+    #[test]
+    fn oral_seconds_is_clamped_to_sane_range() {
+        let mut e = engine();
+        e.set_oral_seconds(0);
+        assert_eq!(e.oral_seconds(), 5, "下限 5 秒");
+        e.set_oral_seconds(9999);
+        assert_eq!(e.oral_seconds(), 600, "上限 10 分钟");
     }
 }
