@@ -2,10 +2,31 @@
 import type { AppCtx } from '../main';
 import { renderCard } from './card';
 
+/** 面板开着时，快捷键归面板；只有练习视图在前台才响应答题类按键 */
+function panelOpen(): boolean {
+  return !document.getElementById('filterPanel')!.hidden ||
+    !document.getElementById('settingsPanel')!.hidden;
+}
+
+function onPracticeView(): boolean {
+  return document.getElementById('view-practice')!.classList.contains('is-active');
+}
+
 export function mountKeys(ctx: AppCtx): void {
   document.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
-    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
+      // 输入框里只保留 Esc：让搜索框能退出去
+      if (e.key === 'Escape') t.blur();
+      return;
+    }
+
+    // Esc 关面板（index.html:130-137 的快捷键表里列了它）
+    if (e.key === 'Escape') {
+      document.getElementById('filterPanel')!.hidden = true;
+      document.getElementById('settingsPanel')!.hidden = true;
+      return;
+    }
 
     if (e.key === '/') {
       e.preventDefault();
@@ -13,6 +34,9 @@ export function mountKeys(ctx: AppCtx): void {
       (document.getElementById('searchInput') as HTMLInputElement).focus();
       return;
     }
+
+    // 以下都是答题相关：面板开着或不在练习视图时不该触发
+    if (panelOpen() || !onPracticeView()) return;
     if (e.key === 'f' || e.key === 'F') {
       ctx.engine.toggle_fav(); ctx.persist(); renderCard(ctx); return;
     }

@@ -2,7 +2,7 @@
 import init, { QuizEngine } from '../pkg/embq_core';
 import { installFlushHooks, loadState, scheduleSave } from './core/store';
 import { mountCard, renderCard } from './ui/card';
-import { mountFilter, refreshCount } from './ui/filter';
+import { applyFilterToDom, mountFilter, refreshCount } from './ui/filter';
 import { renderStats } from './ui/stats';
 import { mountSettings, renderHealth } from './ui/settings';
 import { mountKeys } from './ui/keys';
@@ -56,10 +56,14 @@ async function boot(): Promise<void> {
     return;
   }
 
-  // 有未刷完的卷就接着刷，否则智能复习全库
-  if (!engine.restore_deck()) {
+  // 有未刷完的卷就接着刷，否则智能复习全库。
+  // 恢复成功时把卷的筛选条件回填到 chips，否则面板显示的是默认值，
+  // 用户一点「开始练习」就会用错的条件重新组卷、丢掉当前进度。
+  const restored = engine.restore_deck();
+  if (!restored) {
     engine.build(JSON.stringify(defaultFilter()));
   }
+  const deckFilter = restored ? deckFilterOf(engine) : null;
 
   const ctx: AppCtx = {
     engine,
@@ -74,10 +78,20 @@ async function boot(): Promise<void> {
   };
 
   installFlushHooks(() => engine.state_json());
-  mount(ctx);
+  mount(ctx, deckFilter);
 }
 
-function mount(ctx: AppCtx): void {
+/** 从落盘的 deck 里读回组卷条件；结构不符就返回 null，让面板保持默认值 */
+function deckFilterOf(engine: QuizEngine): Filter | null {
+  try {
+    const s = JSON.parse(engine.state_json()) as { deck?: { filter?: Filter } };
+    return s.deck?.filter ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function mount(ctx: AppCtx, deckFilter: Filter | null): void {
   applyTheme(ctx);
   mountTheme(ctx);
   mountCard(ctx);
@@ -86,6 +100,8 @@ function mount(ctx: AppCtx): void {
   mountKeys(ctx);
   renderHealth(ctx);
   mountViewTabs();
+  // chips 要在 mountFilter 渲染完分类之后再回填
+  if (deckFilter) applyFilterToDom(deckFilter);
   refreshCount(ctx);
   ctx.rerender();
 }

@@ -58,7 +58,7 @@ export function refreshCount(ctx: AppCtx): void {
 const AUTO_PRESET = ['automotive', 'bus', 'security', 'mcu-hw', 'hardware', 'build', 'debug', 'behavioral'];
 
 /** 把 Filter 写回 chips（重置按钮用） */
-function applyFilterToDom(f: Filter): void {
+export function applyFilterToDom(f: Filter): void {
   document.querySelectorAll<HTMLElement>('#catChips .chip').forEach((c) => {
     c.classList.toggle('is-on', f.cats.length === 0 || f.cats.includes(c.dataset.cat!));
   });
