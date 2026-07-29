@@ -201,7 +201,9 @@ mod tests {
         let cs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/data/categories.json"))
             .unwrap();
         let c = parse(&qs, &cs).expect("真实题库应通过校验");
-        assert_eq!(c.len(), 476, "题目总数必须是 476");
+        // 下限而非等值：新增题目不该让测试失败。
+        // id 唯一、分类合法、答案不越界这些真正要守的规则由 parse 本身保证。
+        assert!(c.len() >= 476, "题目数不该少于迁移时的 476，实际 {}", c.len());
         assert_eq!(c.cats().len(), 19);
         assert!(health(&c).is_empty(), "真实题库自检应无问题: {:?}", health(&c));
     }
