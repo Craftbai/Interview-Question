@@ -1,5 +1,9 @@
 use crate::catalog::Catalog;
+use crate::models::Mode;
 use crate::models::{Filter, Progress, QType, Scope, UserState};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
 pub fn now_ms() -> u64 {
@@ -105,6 +109,57 @@ impl Scheduler {
             .get(&today_key())
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// 排序键必须是全序，否则每次组卷顺序会变 —— 这是 v1 的核心 bug。
+    fn order(&self, pool: &mut Vec<usize>, f: &Filter) {
+        match f.mode {
+            // select 已按原始下标升序产出，无需再排
+            Mode::Ordered => {}
+            Mode::Smart => {
+                pool.sort_by(|&a, &b| self.smart_key(a).cmp(&self.smart_key(b)));
+            }
+            Mode::Random => {
+                let seed = f.seed.unwrap_or(0);
+                let mut rng = StdRng::seed_from_u64(seed);
+                pool.shuffle(&mut rng);
+            }
+        }
+    }
+
+    /// (盒号, 紧急度, 上次作答时间, id) —— 全序、无随机、可复现。
+    /// urgency: 0 = 加急（错多于对，或简历高危题），1 = 普通。
+    fn smart_key(&self, idx: usize) -> (u8, u8, u64, String) {
+        let q = match self.catalog.get(idx) {
+            Some(q) => q,
+            None => return (u8::MAX, 1, u64::MAX, String::new()),
+        };
+        let p = self.progress_of(&q.id);
+        let urgent = p.wrong > p.right || q.resume;
+        (p.bx, if urgent { 0 } else { 1 }, p.last, q.id.clone())
+    }
+
+    /// 组卷：筛选 + 排序，重置到第一题。返回题数，0 表示无命中。
+    pub fn build(&mut self, f: &Filter) -> usize {
+        let mut pool = self.select(f);
+        self.order(&mut pool, f);
+        self.pool = pool;
+        self.pos = 0;
+        self.filter = f.clone();
+        self.pool.len()
+    }
+
+    /// 测试与持久化用：当前卷的 id 列表
+    pub fn pool_ids(&self) -> Vec<String> {
+        self.pool
+            .iter()
+            .filter_map(|&i| self.catalog.get(i).map(|q| q.id.clone()))
+            .collect()
+    }
+
+    /// 当前题在卷中的下标；等于卷长度表示已完成。
+    pub fn position(&self) -> usize {
+        self.pos
     }
 }
 
@@ -222,5 +277,96 @@ mod tests {
         let s = fixture();
         let f = Filter { cats: vec!["nope".into()], ..Default::default() };
         assert!(s.select(&f).is_empty());
+    }
+
+    #[test]
+    fn ordered_mode_follows_bank_declaration_order() {
+        let mut s = fixture();
+        let f = Filter { mode: Mode::Ordered, ..Default::default() };
+        s.build(&f);
+        assert_eq!(s.pool_ids(), vec!["c-1", "c-2", "os-1", "os-2"]);
+    }
+
+    #[test]
+    fn ordered_mode_is_reproducible() {
+        let f = Filter { mode: Mode::Ordered, ..Default::default() };
+        let mut a = fixture(); a.build(&f);
+        let mut b = fixture(); b.build(&f);
+        assert_eq!(a.pool_ids(), b.pool_ids());
+    }
+
+    #[test]
+    fn smart_mode_puts_lower_box_first() {
+        let mut st = UserState::default();
+        st.q.insert("c-1".into(), Progress { bx: 3, last: 1000, ..Default::default() });
+        st.q.insert("c-2".into(), Progress { bx: 2, last: 1000, ..Default::default() });
+        st.q.insert("os-1".into(), Progress { bx: 1, last: 1000, ..Default::default() });
+        // os-2 无记录 => bx 0
+        let mut s = Scheduler::new(fixture_catalog(), st);
+        s.build(&Filter { mode: Mode::Smart, ..Default::default() });
+        assert_eq!(s.pool_ids(), vec!["os-2", "os-1", "c-2", "c-1"]);
+    }
+
+    #[test]
+    fn smart_mode_breaks_box_ties_by_last_then_id() {
+        let mut st = UserState::default();
+        // 同盒、同紧急度、同时间 => 只能靠 id 兜底，保证全序。
+        // 注意 c-2 在 fixture 里是 resume 高危题（urgency 恒为 0），
+        // 所以这里让四题都 wrong > right，把 urgency 位拉平，才真正测到 id 兜底。
+        for id in ["c-1", "c-2", "os-1", "os-2"] {
+            st.q.insert(id.into(), Progress { bx: 1, right: 0, wrong: 1, last: 500, ..Default::default() });
+        }
+        let mut s = Scheduler::new(fixture_catalog(), st);
+        s.build(&Filter { mode: Mode::Smart, ..Default::default() });
+        assert_eq!(s.pool_ids(), vec!["c-1", "c-2", "os-1", "os-2"], "同键时按 id 字典序");
+    }
+
+    #[test]
+    fn smart_mode_is_reproducible_across_rebuilds() {
+        let mut st = UserState::default();
+        st.q.insert("c-1".into(), Progress { bx: 1, right: 1, wrong: 4, last: 900, ..Default::default() });
+        st.q.insert("os-1".into(), Progress { bx: 1, right: 5, wrong: 0, last: 900, ..Default::default() });
+        let f = Filter { mode: Mode::Smart, ..Default::default() };
+        let mut a = Scheduler::new(fixture_catalog(), st.clone()); a.build(&f);
+        let mut b = Scheduler::new(fixture_catalog(), st.clone()); b.build(&f);
+        assert_eq!(a.pool_ids(), b.pool_ids(), "Smart 必须无随机、可复现");
+        // 错多于对的排在同盒里更前面
+        let ids = a.pool_ids();
+        let pc = ids.iter().position(|x| x == "c-1").unwrap();
+        let po = ids.iter().position(|x| x == "os-1").unwrap();
+        assert!(pc < po, "错多于对的题应加急");
+    }
+
+    #[test]
+    fn random_mode_same_seed_same_order() {
+        let f = Filter { mode: Mode::Random, seed: Some(42), ..Default::default() };
+        let mut a = fixture(); a.build(&f);
+        let mut b = fixture(); b.build(&f);
+        assert_eq!(a.pool_ids(), b.pool_ids(), "同 seed 必须同顺序");
+    }
+
+    #[test]
+    fn random_mode_different_seed_usually_differs() {
+        let mut a = fixture();
+        a.build(&Filter { mode: Mode::Random, seed: Some(1), ..Default::default() });
+        let mut b = fixture();
+        b.build(&Filter { mode: Mode::Random, seed: Some(999), ..Default::default() });
+        assert_ne!(a.pool_ids(), b.pool_ids());
+    }
+
+    #[test]
+    fn random_mode_without_seed_still_deterministic() {
+        // seed 缺失时回退到固定值，绝不能读系统熵源
+        let f = Filter { mode: Mode::Random, seed: None, ..Default::default() };
+        let mut a = fixture(); a.build(&f);
+        let mut b = fixture(); b.build(&f);
+        assert_eq!(a.pool_ids(), b.pool_ids());
+    }
+
+    #[test]
+    fn build_returns_pool_size_and_resets_position() {
+        let mut s = fixture();
+        assert_eq!(s.build(&Filter::default()), 4);
+        assert_eq!(s.position(), 0);
     }
 }
