@@ -19,6 +19,7 @@ name = "embq-core"
 version = "2.0.0"
 dependencies = [
  "getrandom",
+ "js-sys",
  "rand",
  "serde",
  "serde-wasm-bindgen",
