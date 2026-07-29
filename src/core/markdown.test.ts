@@ -37,6 +37,21 @@ describe('markdown', () => {
     expect(renderMD('`C:\\\\path`')).toContain('C:\\\\path');
   });
 
+  it('blocks javascript: and other dangerous url schemes in links', () => {
+    // esc() 不转义这些字符，所以只有白名单能拦住
+    expect(renderMD('[点这里](javascript:alert(1))')).not.toContain('javascript:');
+    expect(renderMD('[x](JaVaScRiPt:alert(1))')).not.toContain('aVaScRiPt:');
+    expect(renderMD('[x](data:text/html,<script>)')).not.toContain('data:text/html');
+    expect(renderMD('[x](//evil.com)')).toContain('href="#"');
+  });
+
+  it('keeps legitimate urls intact', () => {
+    expect(renderMD('[x](https://example.com/a?b=1)')).toContain('href="https://example.com/a?b=1"');
+    expect(renderMD('[x](http://example.com)')).toContain('href="http://example.com"');
+    expect(renderMD('[x](#anchor)')).toContain('href="#anchor"');
+    expect(renderMD('[x](docs/a.md)')).toContain('href="docs/a.md"');
+  });
+
   it('does not throw on empty or undefined-ish input', () => {
     expect(renderMD('')).toBe('');
     expect(() => renderMD('\n\n\n')).not.toThrow();

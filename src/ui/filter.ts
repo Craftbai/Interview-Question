@@ -39,7 +39,7 @@ export function renderCatChips(ctx: AppCtx): void {
       const n = (ctx.engine.count(JSON.stringify({ ...defaultFilter(), cats: [c.id] })) as
         { total: number }).total;
       if (!n) return '';
-      return `<button class="chip is-on" data-cat="${c.id}" title="${esc(c.desc)}">` +
+      return `<button class="chip is-on" data-cat="${esc(c.id)}" title="${esc(c.desc)}">` +
         `${esc(c.name)}<span class="n">${n}</span></button>`;
     })
     .join('');

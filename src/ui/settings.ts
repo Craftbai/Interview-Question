@@ -1,6 +1,8 @@
 // src/ui/settings.ts
 import type { AppCtx } from '../main';
+import { defaultFilter } from '../main';
 import { resetState } from '../core/store';
+import { esc } from '../core/markdown';
 import { renderCard } from './card';
 import { toast } from './toast';
 
@@ -27,12 +29,24 @@ function catName(ctx: AppCtx, id: string): string {
   return _catNames.get(id) ?? id;
 }
 
+/**
+ * 题库自检结果。结构照 legacy/js/app.js:611-617：外层 .health（index.html 已有），
+ * 每条问题一个 <span class="err">，冻结的 CSS 只认这两个选择器。
+ *
+ * `esc(p)` 不能省：health() 的文本由 parser 用题目的 cat 字段拼成
+ * （src-rust/parser.rs 的 format!("分类 \"{}\" ...", c.id)），
+ * 也就是 questions.json 里一个恶意 cat 能一路走到 innerHTML。
+ */
 export function renderHealth(ctx: AppCtx): void {
   const box = document.getElementById('bankHealth')!;
   const problems = ctx.engine.health() as string[];
+  const total = (ctx.engine.count(JSON.stringify(defaultFilter())) as { total: number }).total;
+  const catCount = (ctx.engine.cats() as unknown[]).length;
+
   box.innerHTML = problems.length
-    ? problems.map((p) => `<div class="health-item is-bad">${p}</div>`).join('')
-    : '<div class="health-item is-ok">题库自检通过，没有发现问题。</div>';
+    ? `共 ${total} 题，发现 ${problems.length} 个问题：` +
+      problems.map((p) => `<span class="err">· ${esc(p)}</span>`).join('')
+    : `共 ${total} 题，${catCount} 个分类，未发现问题。`;
 }
 
 /** 今天错题 Markdown 导出（移植自 legacy/js/stats.js:95） */

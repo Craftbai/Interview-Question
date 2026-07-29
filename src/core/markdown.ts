@@ -4,12 +4,27 @@ export function esc(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * 只允许 http(s)、mailto 和站内相对路径。
+ * `esc()` 已经把 `"` `<` `>` 实体化，所以突破属性或标签是不可能的，
+ * 但 `javascript:alert(1)` 一个被转义字符都不含，能原样落进 href 变成可点的执行入口。
+ * v1（legacy/js/app.js:34）没有这层白名单，这里补上。
+ */
+function safeUrl(u: string): string {
+  const trimmed = u.trim();
+  // 协议相对 //evil.com 也当外链拦掉，题库里没有这种用法
+  if (/^(https?:|mailto:)/i.test(trimmed)) return trimmed;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) return '#';
+  return trimmed; // 相对路径 / 锚点
+}
+
 function inline(s: string): string {
   return esc(s)
     .replace(/`([^`]+)`/g, (_m, c: string) => `<code>${c}</code>`)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-      (_m, t: string, u: string) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`);
+      (_m, t: string, u: string) =>
+        `<a href="${safeUrl(u)}" target="_blank" rel="noopener">${t}</a>`);
 }
 
 /* 表格：连续的 | 行 → <table>，第二行是分隔线则首行为表头 */

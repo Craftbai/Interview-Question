@@ -1,6 +1,7 @@
 // src/main.ts
 import init, { QuizEngine } from '../pkg/embq_core';
 import { installFlushHooks, loadState, scheduleSave } from './core/store';
+import { esc } from './core/markdown';
 import { mountCard, renderCard } from './ui/card';
 import { applyFilterToDom, mountFilter, refreshCount } from './ui/filter';
 import { renderStats } from './ui/stats';
@@ -50,9 +51,10 @@ async function boot(): Promise<void> {
   try {
     engine = new QuizEngine(questions, categories, saved ?? undefined);
   } catch (e) {
-    // 题库坏了没法降级，直接把错误摆给用户，别白屏
+    // 题库坏了没法降级，直接把错误摆给用户，别白屏。
+    // 错误文本里会夹带 serde 报出的题库片段，所以要转义。
     document.getElementById('cardWrap')!.innerHTML =
-      `<div class="empty"><h2>题库加载失败</h2><p>${String(e)}</p></div>`;
+      `<div class="empty"><h2>题库加载失败</h2><p>${esc(String(e))}</p></div>`;
     return;
   }
 
