@@ -3,6 +3,7 @@ import type { AppCtx, Filter } from '../main';
 import { defaultFilter, switchView } from '../main';
 import { esc, renderMD } from '../core/markdown';
 import { toast } from './toast';
+import { currentFilter } from './filter';
 
 /* ---------------- 题目与判卷 ---------------- */
 
@@ -73,14 +74,6 @@ function isOral(st: SavedState): boolean {
 
 function oralSeconds(st: SavedState): number {
   return st.settings?.oralSeconds ?? 60;
-}
-
-/**
- * Task 18 会用 ui/filter.ts 的 currentFilter 取代它。
- * 退回读「当前这卷是用什么筛选条件组出来的」，是没有面板状态时最诚实的答案。
- */
-function currentFilter(ctx: AppCtx): Filter {
-  return saved(ctx).deck?.filter ?? defaultFilter();
 }
 
 /* ---------------- 文案常量（沿用 legacy/js/app.js:10-12） ---------------- */
