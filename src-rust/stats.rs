@@ -62,8 +62,10 @@ fn streak(state: &UserState) -> u32 {
 fn day_key_offset(offset: i64) -> String {
     #[cfg(all(target_arch = "wasm32", not(test)))]
     {
-        let d = js_sys::Date::new_0();
-        d.set_date(d.get_date() - offset as u32);
+        // 用毫秒做减法（对齐 native 分支）：set_date(get_date() - offset) 会让 u32 下溢，
+        // offset > 当月日号时会算出垃圾日期。get_full_year/get_month/get_date 仍是本地时区语义。
+        let ms = js_sys::Date::new_0().get_time() - (offset as f64) * 86_400_000.0;
+        let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
         return format!("{:04}-{:02}-{:02}", d.get_full_year(), d.get_month() + 1, d.get_date());
     }
     #[cfg(not(all(target_arch = "wasm32", not(test))))]
