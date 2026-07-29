@@ -1,0 +1,5 @@
+/pkg
+/target
+/node_modules
+/dist
+/src-tauri/target
