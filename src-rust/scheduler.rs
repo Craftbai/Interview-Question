@@ -1,6 +1,6 @@
 use crate::catalog::Catalog;
 use crate::models::Mode;
-use crate::models::{Filter, Progress, QType, Scope, UserState};
+use crate::models::{Deck, Filter, Progress, Question, Scope, UserState};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -146,6 +146,7 @@ impl Scheduler {
         self.pool = pool;
         self.pos = 0;
         self.filter = f.clone();
+        self.save_deck();
         self.pool.len()
     }
 
@@ -157,9 +158,80 @@ impl Scheduler {
             .collect()
     }
 
+    pub fn size(&self) -> usize { self.pool.len() }
+
     /// 当前题在卷中的下标；等于卷长度表示已完成。
-    pub fn position(&self) -> usize {
-        self.pos
+    pub fn position(&self) -> usize { self.pos }
+
+    pub fn is_finished(&self) -> bool { self.pos >= self.pool.len() }
+
+    pub fn current(&self) -> Option<&Question> {
+        self.pool.get(self.pos).and_then(|&i| self.catalog.get(i))
+    }
+
+    pub fn advance(&mut self) {
+        if self.pos < self.pool.len() {
+            self.pos += 1;
+            self.save_deck();
+        }
+    }
+
+    pub fn back(&mut self) -> bool {
+        if self.pos == 0 {
+            return false;
+        }
+        self.pos -= 1;
+        self.save_deck();
+        true
+    }
+
+    pub fn goto(&mut self, pos: usize) {
+        self.pos = pos.min(self.pool.len());
+        self.save_deck();
+    }
+}
+
+impl Scheduler {
+    /// 把当前卷写进 state，供 TS 落盘。每次组卷/前进/后退后调用。
+    pub fn save_deck(&mut self) {
+        if self.pool.is_empty() {
+            self.state.deck = None;
+            return;
+        }
+        self.state.deck = Some(Deck {
+            ids: self.pool_ids(),
+            pos: self.pos,
+            filter: self.filter.clone(),
+            seed: self.filter.seed.unwrap_or(0),
+            bank_hash: self.catalog.bank_hash(),
+        });
+    }
+
+    /// 恢复上次未刷完的卷。题库变过或卷里有已删除的题则返回 false。
+    pub fn restore_deck(&mut self) -> bool {
+        let deck = match self.state.deck.clone() {
+            Some(d) => d,
+            None => return false,
+        };
+        if deck.bank_hash != self.catalog.bank_hash() {
+            self.state.deck = None;
+            return false;
+        }
+        let mut pool = Vec::with_capacity(deck.ids.len());
+        for id in &deck.ids {
+            match self.catalog.index_of(id) {
+                Some(i) => pool.push(i),
+                None => {
+                    // 静默跳过会让 pos 指向别的题，宁可整卷作废
+                    self.state.deck = None;
+                    return false;
+                }
+            }
+        }
+        self.pos = deck.pos.min(pool.len());
+        self.pool = pool;
+        self.filter = deck.filter;
+        true
     }
 }
 
@@ -368,5 +440,106 @@ mod tests {
         let mut s = fixture();
         assert_eq!(s.build(&Filter::default()), 4);
         assert_eq!(s.position(), 0);
+    }
+
+    #[test]
+    fn navigation_walks_pool_and_stops_at_end() {
+        let mut s = fixture();
+        s.build(&Filter { mode: Mode::Ordered, ..Default::default() });
+        assert_eq!(s.current().unwrap().id, "c-1");
+        s.advance();
+        assert_eq!(s.current().unwrap().id, "c-2");
+        assert_eq!(s.position(), 1);
+        s.advance(); s.advance();
+        assert_eq!(s.current().unwrap().id, "os-2");
+        s.advance();
+        assert!(s.is_finished(), "走完 4 题应进入完成态");
+        assert!(s.current().is_none());
+        s.advance(); // 已完成再前进不该越界
+        assert_eq!(s.position(), 4);
+    }
+
+    #[test]
+    fn back_returns_false_at_first_question() {
+        let mut s = fixture();
+        s.build(&Filter { mode: Mode::Ordered, ..Default::default() });
+        assert!(!s.back(), "首题回退应返回 false");
+        s.advance();
+        assert!(s.back());
+        assert_eq!(s.current().unwrap().id, "c-1");
+    }
+
+    #[test]
+    fn goto_clamps_out_of_range() {
+        let mut s = fixture();
+        s.build(&Filter::default());
+        s.goto(999);
+        assert_eq!(s.position(), 4, "越界 goto 应夹到完成态而不是 panic");
+        s.goto(2);
+        assert_eq!(s.position(), 2);
+    }
+
+    #[test]
+    fn empty_pool_reports_finished_without_panic() {
+        let mut s = fixture();
+        assert_eq!(s.build(&Filter { cats: vec!["nope".into()], ..Default::default() }), 0);
+        assert!(s.is_finished());
+        assert!(s.current().is_none());
+        assert!(!s.back());
+    }
+
+    #[test]
+    fn restore_deck_resumes_exact_position() {
+        let mut s = fixture();
+        s.build(&Filter { mode: Mode::Random, seed: Some(7), ..Default::default() });
+        s.advance();
+        s.advance();
+        let expected_ids = s.pool_ids();
+        let json = serde_json::to_string(s.state()).unwrap();
+
+        // 模拟「关掉再打开」
+        let restored: UserState = serde_json::from_str(&json).unwrap();
+        let mut s2 = Scheduler::new(fixture_catalog(), restored);
+        assert!(s2.restore_deck(), "题库未变，应恢复成功");
+        assert_eq!(s2.position(), 2, "应停在关掉时那一题");
+        assert_eq!(s2.pool_ids(), expected_ids, "卷的顺序必须一模一样");
+    }
+
+    #[test]
+    fn restore_deck_rejects_deck_from_changed_bank() {
+        let mut s = fixture();
+        s.build(&Filter::default());
+        s.advance();
+        let json = serde_json::to_string(s.state()).unwrap();
+
+        // 题库变了：多一道题
+        let mut all: Vec<Question> = fixture_catalog().all().to_vec();
+        all.push(mk("os-3", "os", 1, QType::Qa, false));
+        let bigger = Catalog::new(all, vec![cat("c-lang"), cat("os")]);
+
+        let restored: UserState = serde_json::from_str(&json).unwrap();
+        let mut s2 = Scheduler::new(bigger, restored);
+        assert!(!s2.restore_deck(), "题库变了应拒绝旧卷");
+    }
+
+    #[test]
+    fn restore_deck_returns_false_when_no_deck_saved() {
+        let mut s = fixture();
+        assert!(!s.restore_deck());
+    }
+
+    #[test]
+    fn restore_deck_drops_ids_no_longer_in_bank() {
+        // 卷里有已删除的题：整卷作废，不能静默跳过导致 pos 错位
+        let mut st = UserState::default();
+        st.deck = Some(Deck {
+            ids: vec!["c-1".into(), "deleted-1".into(), "os-1".into()],
+            pos: 1,
+            filter: Filter::default(),
+            seed: 0,
+            bank_hash: fixture_catalog().bank_hash(),
+        });
+        let mut s = Scheduler::new(fixture_catalog(), st);
+        assert!(!s.restore_deck(), "卷里含不存在的 id，应作废");
     }
 }
