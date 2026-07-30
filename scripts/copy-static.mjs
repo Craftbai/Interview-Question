@@ -6,7 +6,8 @@
 // 连前面的 console.log 都来不及打印。readFileSync / mkdirSync /
 // copyFileSync 均正常，所以改成自己递归遍历、逐文件复制。
 import {
-  copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync,
+  copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync,
+  statSync, writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 
@@ -37,5 +38,22 @@ for (const f of ['sw.js', 'manifest.json']) {
 // GitHub Pages 默认会跑 Jekyll，它会忽略下划线开头的目录、并可能干预静态资源的
 // 服务方式。这是纯静态产物，不需要 Jekyll 参与。
 writeFileSync(join('dist', '.nojekyll'), '');
+
+// Vite 把 <link rel="manifest"> 当成资源，哈希进了 assets/。
+// 后果是 manifest 里的相对图标路径（icons/icon-192.png）基准变成 assets/，
+// 全部 404，安卓 Chrome 就不弹「添加到主屏幕」。
+// 这里把引用改回根目录那份未哈希的 manifest.json，并删掉哈希副本。
+const indexPath = join('dist', 'index.html');
+const html = readFileSync(indexPath, 'utf8');
+const patched = html.replace(
+  /<link rel="manifest" href="[^"]*">/,
+  '<link rel="manifest" href="manifest.json">',
+);
+// assets/ 下那份哈希副本改完引用后就没人指向了，留着无害（721 字节），
+// 不删是因为本机 rmSync 会报成功但实际不生效（同 cpSync 那类环境问题）。
+if (patched !== html) {
+  writeFileSync(indexPath, patched);
+  console.log('Rewired manifest link to unhashed dist/manifest.json');
+}
 
 console.log(`Static assets copied to dist/ (${count} entries)`);
