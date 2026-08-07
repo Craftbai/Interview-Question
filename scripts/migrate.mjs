@@ -30,7 +30,7 @@ sandbox.QBANK = {
 const ctx = createContext(sandbox);
 
 for (const f of FILES) {
-  const src = readFileSync(join(ROOT, 'data', f), 'utf8');
+  const src = readFileSync(join(ROOT, 'legacy', 'data', f), 'utf8');
   runInContext(src, ctx, { filename: f });
 }
 
@@ -46,7 +46,7 @@ const catalog = { cats: categories, presets: sandbox.CAT_PRESETS ?? {} };
 
 // ---- 自检：任一条不过就中止，不写文件 ----
 const errs = [];
-if (questions.length !== 476) errs.push(`题目数 ${questions.length}，期望 476`);
+if (questions.length !== 496) errs.push(`题目数 ${questions.length}，期望 496`);
 
 const seen = new Set();
 for (const q of questions) {

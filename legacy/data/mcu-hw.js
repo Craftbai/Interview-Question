@@ -244,5 +244,11 @@ QBANK.add([
      '**3. 中断控制器架构 (CLINT vs PLIC)**：\n' +
      '- **CLINT (Core Local Interruptor)**：处理**核内**低延迟中断（如软件中断 MSI 和定时器中断 MTI mtime/mtimecmp）。\n' +
      '- **PLIC (Platform-Level Interrupt Controller)**：处理**平台级外设外部中断**（UART、SPI、GPIO 等）。支持优先级仲裁、中断 Claim/Completion 响应机制。在多核 RISC-V 芯片中将外部中断分发给特定的 Hart (CPU 核心)。'
+},
+{
+  id: 'mcu-028', cat: 'mcu-hw', type: 'qa', level: 2, tags: ['HardFault', '调试', '异常'],
+  q: 'MCU 开发中有没有遇到过 HardFault？一般如何排查？',
+  a: '**HardFault 是 Cortex-M 的硬件异常，通常由以下原因触发**：\n\n1. **非法内存访问**：读写了未映射的地址、写了只读区（Flash）、MPU 保护区\n2. **栈溢出**：SP 跑到了栈空间以外，访问了非法地址\n3. **非对齐访问**：在使能对齐检查的情况下访问了非对齐的地址\n4. **未定义指令**：执行了 CPU 不认识的指令（比如跳到了数据区）\n5. **总线错误**：访问外设寄存器时外设未使能\n\n**排查步骤**：\n\n**第一步：捕获现场，不要用空的 HardFault_Handler**\n```c\nvoid HardFault_Handler(void) {\n    /* 判断异常发生在哪个栈（MSP or PSP）*/\n    __asm volatile (\n        "TST LR, #4\\n"\n        "ITE EQ\\n"\n        "MRSEQ R0, MSP\\n"\n        "MRSNE R0, PSP\\n"\n        "B hard_fault_dump\\n"\n    );\n}\nvoid hard_fault_dump(uint32_t *sp) {\n    /* sp[6] 是异常发生时的 PC，sp[7] 是 xPSR */\n    volatile uint32_t pc = sp[6];\n    volatile uint32_t lr = sp[5];\n    (void)pc; (void)lr;\n    while(1);  /* 断点停在这里，看 pc 就知道在哪崩的 */\n}\n```\n\n**第二步：读 Fault 状态寄存器**\n```c\n/* CFSR：组合了 UFSR(未定义指令)、BFSR(总线错误)、MMFSR(内存保护错误) */\nvolatile uint32_t cfsr  = SCB->CFSR;   /* 0xE000ED28 */\nvolatile uint32_t hfsr  = SCB->HFSR;  /* HardFault 状态 */\nvolatile uint32_t mmfar = SCB->MMFAR; /* 访问违规的地址（若 MMFSR.MMARVALID=1）*/\nvolatile uint32_t bfar  = SCB->BFAR;  /* 总线错误地址（若 BFSR.BFARVALID=1）*/\n```\n看 CFSR 里哪个 bit 置位，就知道是哪类错误；看 MMFAR/BFAR 就知道具体访问了哪个非法地址。\n\n**第三步：用 addr2line / GDB 定位**\n拿到 stacked PC 后：\n```bash\narm-none-eabi-addr2line -e firmware.elf -f 0x08001234\n```\n就能看到出错时在哪个函数、哪一行。\n\n**常见根因和解法**：\n- **栈溢出**：用 FreeRTOS 的 `uxTaskGetStackHighWaterMark` 监控，或在栈底放特征值检查；根治是加大栈或减少局部变量\n- **野指针**：全局指针未初始化（MCU 上 .bss 清零但 .data 里未初始化的可能是随机值）；函数返回后使用局部变量的指针\n- **外设未开时钟就访问**：先调用 `__HAL_RCC_XXX_CLK_ENABLE()`\n- **开启 CONFIG_DEBUG_ATOMICS / MPU**：MPU 能把访问非法区域立刻变成精确错误，大大降低排查难度\n\n**排查套路总结**：HardFault → 捕获 SP → 找 stacked PC → addr2line 定位代码行 → 读 CFSR/MMFAR 确认原因 → 修根因。',
+  followup: ['CFSR 寄存器里各 bit 分别代表什么？', '怎么区分 HardFault 是在任务里还是在中断里发生的？', '如何防止函数返回后再使用局部变量的指针？']
 }
 ]);
